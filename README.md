@@ -29,28 +29,6 @@
     }
     ```
 
-### Custom Shortcuts
-
-Add usefule custom shortcuts globally and for specific applications. Open "System Preferences > Keyboard > Keyboard shortcuts > App shortcuts"
-
-1. **Change global Shorcuts:**  
-   Add to following custom shortcuts:
-    - **Application**: Alle Applikationen  
-      **Menu title**: "Redo"  
-      **Shortcut**: "Command (⌘) + Y"
-
-2. **Change shortcuts for Google Chrome:**  
-   Add to following custom shortcuts:
-    - **Application**: Google Chrome  
-      **Menu title**: "Diese Seite neuladen"  
-      **Shortcut**: "F5"
-
-    - **Application**: Google Chrome  
-      **Menu title**: "Erneutes Laden dieser Seite erzwingen"  
-      **Shortcut**: "Command (⌘) + F5"  
-      **Important**: To enable this shortcut, you have to disable VoiceOver.  
-       You can to this via "System Preferences > Keyboard > Keyboard shortcuts > Accessibility features > disable VoiceOver"
-
 ## Productivity
 
 ### Install HomeBrew
@@ -79,3 +57,10 @@ Download via `https://ubarapp.com/`
 2. Open System Preferences → Security & Privacy → General.
 3. Under "Allow apps downloaded from," select "Anywhere."
 4. You may be prompted to enter your administrator password to confirm the change.
+
+### disable VoiceOver
+
+This part is important that ctrl + f5 works as expected and not open the VoiceOver.
+
+1. Open System Preferences → Accessibility → VoiceOver.
+2. Uncheck the box next to "Enable VoiceOver" to disable it.
