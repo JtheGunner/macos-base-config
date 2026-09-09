@@ -1,0 +1,6 @@
+# Sibling repos this bootstrap clones/pulls into ~/Projects/ and then applies.
+# Format:  <dir-name>  <git-url>  [apply-command]
+# apply-command runs from the repo dir; omit to just clone + print the README hint.
+
+swiss-windows-keyboard-layout-macos       git@github.com:JtheGunner/swiss-windows-keyboard-layout-macos.git
+karabiner-windows-keyboard-mapping-macos  git@github.com:JtheGunner/karabiner-windows-keyboard-mapping-macos.git  ./apply.sh
