@@ -9,6 +9,7 @@
 # ref          formula / cask name (user/tap/name adds the tap), App Store id,
 #              installer URL, package or module name
 # check        app name for cask / mas / applet / manual (/Applications/<check>.app),
+#              bin:<command> for a cask that installs only a command,
 #              command name for the others; - = the source checks itself
 # category     one word; PACKAGES can pick @category. Keep entries grouped.
 # description  the rest of the line

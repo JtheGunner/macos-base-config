@@ -213,6 +213,17 @@ out="$(PACKAGE_CATALOG="$f" catalog_rows 2>&1)"; rc=$?
 assert_eq "$rc" 2
 assert_contains "$out" "$f:1: script needs an https:// URL"
 
+it "bin: checks are for casks only; extras sources need a real check"
+f="$(write_catalog \
+  'cc  | cask    | claude-code | bin:claude | ai  | a command-only cask' \
+  'x   | formula | x           | bin:x      | cli | bin: on a formula' \
+  'hf  | pipx    | hf          | -          | ai  | no check')"
+out="$(PACKAGE_CATALOG="$f" catalog_rows 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_not_contains "$out" "$f:1:"
+assert_contains "$out" "$f:2: bin:<command> is for casks only"
+assert_contains "$out" "$f:3: pipx needs a command to check, not -"
+
 it "a missing catalog is exit 2"
 out="$(PACKAGE_CATALOG="$TMP/nope.txt" catalog_rows 2>&1)"; rc=$?
 assert_eq "$rc" 2
@@ -250,6 +261,16 @@ assert_eq "$(APPLICATIONS_DIR="$TMP/apps" package_state mas WhatsApp)" missing
 assert_eq "$(package_state pipx sh)" installed
 assert_eq "$(package_state npm no-such-command-xyz)" missing
 assert_eq "$(package_state formula -)" ""
+
+it "a cask that only installs a command is checked by that command"
+f="$(write_catalog 'cc | cask | claude-code | bin:sh | ai | a command-only cask' \
+  'cx | cask | nothing | bin:no-such-command-xyz | ai | missing')"
+assert_eq "$(package_state cask bin:sh)" installed
+assert_eq "$(package_state cask bin:no-such-command-xyz)" missing
+d="$(mktemp -d "$TMP/bf.XXXXXX")"
+out="$(PACKAGE_CATALOG="$f" write_brewfiles "$d" "cc cx")"
+assert_contains "$out" "cc: sh already installed - left alone"
+assert_eq "$(cat "$d/Brewfile")" 'cask "nothing"'
 
 it "write_brewfiles: taps first, catalog order; App Store entries apart, with mas"
 f="$(write_catalog "${TEST_CATALOG_LINES[@]}")"
