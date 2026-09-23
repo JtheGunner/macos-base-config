@@ -63,7 +63,7 @@ the summary at the end (exit code 1), it never aborts the rest.
    ├─ jetbrains   JetBrains keymap → IDE config, set active (skipped until PhpStorm has a config)
    ├─ vscode      same keymap → VS Code / Antigravity         (same condition)
    ├─ editor      font settings → settings.json of every VS Code-family editor
-   ├─ apps        AltTab settings; Sidebar backup → its backup list   (no licenses)
+   ├─ apps        AltTab settings; Sidebar backup → its backup list, from SETTINGS_DIR   (no licenses)
    ├─ dotfiles    the dotfiles repo's own bootstrap.sh: shell, prompt, git, tmux, Ghostty
    ├─ manual      print the manual steps
    └─ summary     ok / skipped / failed per step
@@ -128,6 +128,7 @@ cp config.example.sh ~/.config/macos-base-config/config.sh
 | `PACKAGES`                  | `@base`             | packages to install from the [catalog](#-apps-and-tools): ids, `@category`, `@all`; a leading `-` removes; `""` = none |
 | `BREW_BUNDLE_EXTRA`         | —                   | extra Brewfile for apps outside the catalog, installed after the selected packages                                    |
 | `MACOS_DISABLE_GATEKEEPER`  | `0`                 | `1` = allow apps from anywhere (`sudo spctl --master-disable`); macOS asks you to confirm in Privacy & Security       |
+| `SETTINGS_DIR`              | config file's dir   | private app settings (`alttab.plist`, `sidebar.sidebarbackup`), see [App settings](#app-settings)                     |
 | `DOTFILES_DIR`              | `<parent>/dotfiles` | dotfiles checkout to use, e.g. an existing `~/Git/dotfiles`                                                            |
 | `DOTFILES_URL`              | URL in `repos.txt`  | clone URL, e.g. a fork                                                                                                 |
 | `DOTFILES_ASSUME_YES`       | `0`                 | `1` = repoint stow links from another checkout without asking                                                          |
@@ -221,8 +222,8 @@ them.
 | 🔐 | **Karabiner permissions** | Driver Extension, Input Monitoring, Accessibility. `karabiner-windows-keyboard-mapping-macos/setup.sh` opens the panes and lists the steps |
 | 🇨🇭 | **Input source**          | check *Custom Swiss German* under System Settings → Keyboard → Input Sources, then log out and in. The `keyboard` step enables it when it can |
 | 🛡️ | **Gatekeeper**            | only with `MACOS_DISABLE_GATEKEEPER=1`: confirm "Allow applications from: Anywhere" under Privacy & Security (the `macos` step opens it)    |
-| 📌 | **Sidebar settings**      | Sidebar → Settings → Expert → Backups → **Restore** the backup the `apps` step added (Sidebar has no way to import from a script)           |
-| 🔑 | **Licenses**              | AltTab (Pro) and Sidebar: enter the keys from your password manager in each app                                                             |
+| 📌 | **Sidebar settings**      | only when Sidebar is installed and its backup is in `SETTINGS_DIR`: Sidebar → Settings → Expert → Backups → **Restore** the backup the `apps` step added (Sidebar has no way to import from a script) |
+| 🔑 | **Licenses**              | the installed ones of AltTab (Pro) and Sidebar: enter the keys from your password manager in each app                                      |
 
 ---
 
@@ -333,25 +334,34 @@ The `@base` packages:
 
 ### App settings
 
-The `apps` step brings the AltTab and Sidebar settings from
-[`apps/`](apps) onto the Mac. **No license is ever stored in the repo**, so
-enter those from your password manager once per Mac.
+The `apps` step brings your AltTab and Sidebar settings onto the Mac. They
+are **private and never part of this public repo**. They live in your
+settings directory, `SETTINGS_DIR`, which by default is the folder of your
+config file (`~/.config/macos-base-config/`). **No license is ever
+exported**: enter those from your password manager once per Mac.
 
-|    | App     | In the repo                                                                                                     | On `./bootstrap.sh apps`                                                              |
-|:--:|---------|-----------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------|
-| 🔀 | AltTab  | `apps/alttab.plist`: its preferences, minus window frames, update and telemetry state                           | merged into its preferences; AltTab restarts. Unchanged settings leave it running      |
-| 📌 | Sidebar | `apps/sidebar.sidebarbackup`: a Sidebar backup without license, usage data, statistics, calendars or window state | added to Sidebar's backup list; restore it there (Settings → Expert → Backups)         |
+|    | App     | File in `SETTINGS_DIR`                                                                                 | On `./bootstrap.sh apps`                                                          |
+|:--:|---------|--------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------|
+| 🔀 | AltTab  | `alttab.plist`: its preferences, minus window frames, update and telemetry state                       | merged into its preferences; AltTab restarts. Unchanged settings leave it running  |
+| 📌 | Sidebar | `sidebar.sidebarbackup`: a Sidebar backup without license, usage data, statistics, calendars or window state | added to Sidebar's backup list; restore it there (Settings → Expert → Backups)     |
 
-To save the settings of this Mac into the repo (for Sidebar, first create a
-backup in Sidebar → Settings → Expert → Backups → *Create backup*):
+Everything is optional: an app that isn't installed, or has no file in the
+settings directory, is skipped. Without a settings directory the step is
+skipped.
+
+To save the settings of this Mac (for Sidebar, first create a backup in
+Sidebar → Settings → Expert → Backups → *Create backup*):
 
 ```sh
-python3 apps/app_settings.py export
+python3 apps/app_settings.py export                 # into ~/.config/macos-base-config
+python3 apps/app_settings.py export --dir <dir>     # or into your SETTINGS_DIR
 ```
 
-> [!WARNING]
-> This repository is public. The Sidebar backup still shows which apps and
-> links you pin and your screen names; it holds no license and no usage data.
+> [!TIP]
+> Keep the config and settings in iCloud Drive to have them on a new Mac
+> right after signing in, before anything is installed:
+> `./bootstrap.sh --config "$HOME/Library/Mobile Documents/com~apple~CloudDocs/macos-base-config/config.sh"`.
+> The settings directory follows the config file.
 
 ---
 
