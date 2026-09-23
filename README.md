@@ -145,6 +145,25 @@ scripted reliably.
 | 🔇 | **Disable VoiceOver**              | System Settings → Accessibility → VoiceOver → off, so `Ctrl+F5` isn't taken by VoiceOver                                                          |
 | 🛡️ | **Gatekeeper: apps from anywhere** | `sudo spctl --master-disable`, then System Settings → Privacy & Security → "Allow applications from: Anywhere"                                   |
 | 📦 | **Apps**                           | AltTab and uBar, see [Apps](#-apps-homebrew)                                                                                                      |
+| 🐚 | **Machine-local shell aliases**    | add them to `~/.zshrc.local`, see [Machine-local shell aliases](#-machine-local-shell-aliases)                                                     |
+
+---
+
+## 🐚 Machine-local shell aliases
+
+The public [`dotfiles`](https://github.com/JtheGunner/dotfiles) repo keeps
+only generic aliases. Anything tied to this machine's setup goes in
+`~/.zshrc.local` (and `~/.bashrc.local` for bash). The dotfiles bootstrap
+sources both last and never version-controls them. Create the file by hand and
+add:
+
+```sh
+# Kubernetes dashboard: print a login token for the admin-user service account
+command -v kubectl >/dev/null 2>&1 &&
+  alias kdash-token='kubectl -n kubernetes-dashboard create token admin-user'
+```
+
+Open a new shell (`exec $SHELL`) to pick it up.
 
 ---
 
