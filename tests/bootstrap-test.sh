@@ -727,8 +727,20 @@ case "\$1" in
   import) cp "\$3" "\$store/\$2.plist" ;;
 esac
 EOF
-  printf '#!/bin/bash\necho "osascript $*" >> "%s"\n' "$ALOG" > "$AB/osascript"
-  printf '#!/bin/bash\necho "open $*" >> "%s"\n' "$ALOG" > "$AB/open"
+  cat > "$AB/osascript" <<EOF
+#!/bin/bash
+echo "osascript \$*" >> "$ALOG"
+app="\$(printf '%s' "\$*" | sed -n 's/.*application "\\([^"]*\\)" to quit.*/\\1/p')"
+[ -n "\$app" ] && rm -f "$AH/running-\$app"
+exit 0
+EOF
+  cat > "$AB/open" <<EOF
+#!/bin/bash
+echo "open \$*" >> "$ALOG"
+[ "\$1" = -a ] && touch "$AH/running-\$2"
+exit 0
+EOF
+  printf '#!/bin/bash\n[ -e "%s/running-$2" ]\n' "$AH" > "$AB/pgrep"
   chmod +x "$AB"/*
 }
 run_app_settings() {
@@ -739,6 +751,7 @@ run_app_settings() {
 py() { python3 -c "import plistlib, json, sys, datetime; $1" "${@:2}"; }
 alttab_domain() { echo "$AH/defaults-store/com.lwouis.alt-tab-macos.plist"; }
 sidebar_support() { echo "$AH/Library/Application Support/at.sidebar.Sidebar"; }
+running_app() { touch "$AH/running-$1"; }
 
 # write_alttab FILE KEY=VALUE... -> XML plist of string values
 write_alttab() {
@@ -801,8 +814,8 @@ write_alttab "$(alttab_domain)" appearanceTheme=2 hideStatusIcons=true \
 write_sidebar_backup "$(sidebar_support)/2.2.5_20260923-080000_AAAAAAAA.sidebarbackup"
 run_app_settings export
 assert_eq "$RC" 0
-assert_eq "$(py 'print(sorted(plistlib.load(open(sys.argv[1], "rb"))))' "$AS/alttab.plist")" "['appearanceTheme', 'hideStatusIcons']"
-assert_contains "$(cat "$AS/alttab.plist")" "<?xml"
+assert_eq "$(py 'print(sorted(plistlib.load(open(sys.argv[1], "rb"))))' "$AS/alt-tab.plist")" "['appearanceTheme', 'hideStatusIcons']"
+assert_contains "$(cat "$AS/alt-tab.plist")" "<?xml"
 
 it "apps export strips the Sidebar license, usage and personal data"
 b="$AS/sidebar.sidebarbackup"
@@ -826,7 +839,7 @@ sidebar = plistlib.load(open(sys.argv[2], "rb"))
 found = list(keys(alttab)) + list(keys(sidebar))
 found += list(keys(json.loads(sidebar["portableSettingsData"])))
 found += list(keys(plistlib.loads(sidebar["preferencesPlist"])))
-print([k for k in found if "licen" in k.lower()])' "$AS/alttab.plist" "$AS/sidebar.sidebarbackup")"
+print([k for k in found if "licen" in k.lower()])' "$AS/alt-tab.plist" "$AS/sidebar.sidebarbackup")"
 assert_eq "$leaks" "[]"
 
 it "apps export leaves an unchanged Sidebar export alone"
@@ -840,7 +853,8 @@ assert_contains "$OUT" "Sidebar: unchanged"
 
 it "apps apply merges AltTab settings, keeps other keys, restarts AltTab"
 app_sandbox
-write_alttab "$AS/alttab.plist" appearanceTheme=2 hideStatusIcons=true
+running_app AltTab
+write_alttab "$AS/alt-tab.plist" appearanceTheme=2 hideStatusIcons=true
 write_alttab "$(alttab_domain)" appearanceTheme=0 SULastCheckTime=x
 run_app_settings apply
 assert_eq "$RC" 0
@@ -860,13 +874,52 @@ assert_not_contains "$(cat "$ALOG")" "import"
 
 it "apps apply dry run only lists the AltTab keys it would change"
 app_sandbox
-write_alttab "$AS/alttab.plist" appearanceTheme=2
+write_alttab "$AS/alt-tab.plist" appearanceTheme=2
 write_alttab "$(alttab_domain)" appearanceTheme=0
 run_app_settings apply --dry-run
 assert_eq "$RC" 0
 assert_contains "$OUT" "AltTab: would set appearanceTheme"
 assert_not_contains "$(cat "$ALOG")" "import"
 assert_eq "$(py 'print(plistlib.load(open(sys.argv[1], "rb"))["appearanceTheme"])' "$(alttab_domain)")" 0
+
+it "defaults apply reopens only an app that was running"
+app_sandbox
+write_alttab "$AS/alt-tab.plist" appearanceTheme=2
+write_alttab "$(alttab_domain)" appearanceTheme=0
+run_app_settings apply
+assert_eq "$RC" 0
+assert_contains "$(cat "$ALOG")" "defaults import com.lwouis.alt-tab-macos"
+assert_not_contains "$(cat "$ALOG")" "open -a AltTab"
+assert_contains "$OUT" "AltTab: set appearanceTheme"
+
+it "defaults export drops runtime and secret keys of any registry app"
+app_sandbox
+write_registry 'shottr | defaults | cc.ffitch.shottr | Shottr'
+mkdir -p "$AAPPS/Shottr.app"
+write_alttab "$AH/defaults-store/cc.ffitch.shottr.plist" afterGrabCopy=1 kc-license=L token=T \
+  "NSWindow Frame x=1" SULastCheckTime=x GATelemetry=1 "LaunchAtLogin__hasMigrated=1" \
+  "NSToolbar Configuration y=1" customBackdropColor=red
+run_app_settings export
+assert_eq "$RC" 0
+assert_eq "$(py 'print(sorted(plistlib.load(open(sys.argv[1], "rb"))))' "$AS/shottr.plist")" "['afterGrabCopy', 'customBackdropColor']"
+
+it "defaults export skips a missing domain, other apps still export"
+app_sandbox
+write_registry 'shottr | defaults | cc.ffitch.shottr | Shottr' \
+  'alt-tab | defaults | com.lwouis.alt-tab-macos | AltTab'
+mkdir -p "$AAPPS/Shottr.app"
+write_alttab "$(alttab_domain)" appearanceTheme=2
+run_app_settings export
+assert_eq "$RC" 0
+assert_contains "$OUT" "Shottr: no settings on this Mac - skipped"
+[ -f "$AS/alt-tab.plist" ] || fail "AltTab not exported"
+
+it "legacy alttab.plist in the settings dir is still applied"
+app_sandbox
+write_alttab "$AS/alttab.plist" appearanceTheme=2
+write_alttab "$(alttab_domain)" appearanceTheme=0
+run_app_settings apply
+assert_contains "$OUT" "AltTab: set appearanceTheme"
 
 it "apps apply adds the Sidebar backup to its backup list once"
 app_sandbox
@@ -893,7 +946,7 @@ assert_contains "$OUT" "Sidebar: would add"
 it "apps apply skips apps that are not installed"
 app_sandbox
 rmdir "$AAPPS/AltTab.app" "$AAPPS/Sidebar.app"
-write_alttab "$AS/alttab.plist" appearanceTheme=2
+write_alttab "$AS/alt-tab.plist" appearanceTheme=2
 write_sidebar_backup "$AS/sidebar.sidebarbackup"
 run_app_settings apply
 assert_eq "$RC" 0
@@ -908,12 +961,12 @@ write_sidebar_backup "$(sidebar_support)/2.2.5_20260923-080000_AAAAAAAA.sidebarb
 run_app_settings export
 assert_eq "$RC" 0
 assert_eq "$(stat -f %Lp "$AS")" 700
-assert_eq "$(stat -f %Lp "$AS/alttab.plist")" 600
+assert_eq "$(stat -f %Lp "$AS/alt-tab.plist")" 600
 assert_eq "$(stat -f %Lp "$AS/sidebar.sidebarbackup")" 600
-chmod 644 "$AS/alttab.plist"
+chmod 644 "$AS/alt-tab.plist"
 write_alttab "$(alttab_domain)" appearanceTheme=3
 run_app_settings export
-assert_eq "$(stat -f %Lp "$AS/alttab.plist")" 600
+assert_eq "$(stat -f %Lp "$AS/alt-tab.plist")" 600
 
 it "apps apply skips an installed app without a settings file"
 app_sandbox
@@ -928,10 +981,10 @@ app_sandbox
 write_alttab "$(alttab_domain)" appearanceTheme=2
 run_app_settings export
 assert_eq "$RC" 0
-[ -f "$AS/alttab.plist" ] || fail "no alttab.plist in the new settings dir"
+[ -f "$AS/alt-tab.plist" ] || fail "no alttab.plist in the new settings dir"
 OUT="$(env -u XDG_CONFIG_HOME HOME="$AH" PATH="$AB:$PATH" APPLICATIONS_DIR="$AAPPS" python3 "$AD/app_settings.py" export 2>&1)"
 assert_eq "$?" 0
-[ -f "$AH/.config/macos-base-config/alttab.plist" ] || fail "default dir not used: $OUT"
+[ -f "$AH/.config/macos-base-config/alt-tab.plist" ] || fail "default dir not used: $OUT"
 
 it "no app settings are tracked in this public repo"
 tracked="$(git -C "$REPO" ls-files apps)"
