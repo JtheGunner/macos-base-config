@@ -127,6 +127,41 @@ step_vscode() {
   run_in "$HERE/ide-keymaps" ./port-vscode.sh
 }
 
+LOCAL_RC_BEGIN="# >>> macos-base-config >>>"
+LOCAL_RC_END="# <<< macos-base-config <<<"
+
+# write_local_rc FILE -> replace the managed block in FILE with
+# $DOTFILES_LOCAL_RC (remove it when empty); everything else in FILE stays.
+# A new FILE is created private: these files may hold tokens.
+write_local_rc() {
+  local file="$1" tmp
+  if [ -z "$DOTFILES_LOCAL_RC" ] && ! grep -qxF "$LOCAL_RC_BEGIN" "$file" 2>/dev/null; then
+    return 0
+  fi
+  if $DRY_RUN; then
+    echo "+ update the macos-base-config block in $file"
+    return 0
+  fi
+  tmp="$(mktemp "${TMPDIR:-/tmp}/local-rc.XXXXXX")" || return 1
+  {
+    [ -f "$file" ] && awk -v begin="$LOCAL_RC_BEGIN" -v end="$LOCAL_RC_END" '
+      $0 == begin { inside = 1; next }
+      $0 == end   { inside = 0; next }
+      !inside' "$file"
+    if [ -n "$DOTFILES_LOCAL_RC" ]; then
+      echo "$LOCAL_RC_BEGIN"
+      echo "# managed by macos-base-config (DOTFILES_LOCAL_RC) - edit its config.sh, not this block"
+      printf '%s\n' "$DOTFILES_LOCAL_RC"
+      echo "$LOCAL_RC_END"
+    fi
+  } > "$tmp" || { rm -f "$tmp"; return 1; }
+  [ -e "$file" ] || ( umask 077 && : > "$file" ) || { rm -f "$tmp"; return 1; }
+  # cat instead of mv: keeps the file's permissions and a symlinked rc file
+  echo "+ update the macos-base-config block in $file"
+  cat "$tmp" > "$file" || { rm -f "$tmp"; return 1; }
+  rm -f "$tmp"
+}
+
 step_dotfiles() {
   local dir omnishell_target rc=0
   dir="$(sibling_dir dotfiles)"
@@ -148,6 +183,11 @@ step_dotfiles() {
       STEP_FAIL_REASON="exit $rc"
       return 1
     fi
+  fi
+
+  if ! { write_local_rc "$HOME/.zshrc.local" && write_local_rc "$HOME/.bashrc.local"; }; then
+    STEP_FAIL_REASON="local rc"
+    return 1
   fi
 
   [ -n "$DOTFILES_OMNISHELL_CONFIG" ] || return 0
@@ -174,5 +214,4 @@ step_manual() {
   echo "  - Swiss keyboard layout: swiss-windows-keyboard-layout-macos/README.md"
   echo "  - PhpStorm: Settings > Tools > Terminal > 'Use Option as Meta key' off (AltGr in the console)"
   echo "  - see README.md 'Manual steps' (VoiceOver off, Gatekeeper, AltTab, uBar)"
-  echo "  - machine-local shell aliases (kdash-token): README.md 'Machine-local shell aliases'"
 }

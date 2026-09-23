@@ -183,6 +183,23 @@ f="$(write_config "DOTFILES_OMNISHELL_CONFIG=\"$TMP/omni.toml\"")"
 load_config "$f"; rc=$?
 assert_eq "$rc" 0
 
+it "DOTFILES_LOCAL_RC defaults to empty and loads several lines"
+XDG_CONFIG_HOME="$TMP/none" load_config ""
+assert_eq "$DOTFILES_LOCAL_RC" ""
+f="$(write_config "DOTFILES_LOCAL_RC='" "alias a=b" "export X=1" "'")"
+load_config "$f"; rc=$?
+assert_eq "$rc" 0
+assert_eq "$DOTFILES_LOCAL_RC" "
+alias a=b
+export X=1
+"
+
+it "DOTFILES_LOCAL_RC with a syntax error is exit 2"
+f="$(write_config "DOTFILES_LOCAL_RC='if true; then'")"
+out="$(load_config "$f" 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "DOTFILES_LOCAL_RC has a syntax error"
+
 # --- end to end: bootstrap.sh in a sandbox ----------------------------------
 # stub PATH LABEL [EXIT] -> executable that appends "LABEL <args>" to $LOG
 stub() {
@@ -270,7 +287,7 @@ make_sandbox
 run_bootstrap manual
 assert_eq "$RC" 0
 assert_contains "$OUT" "Karabiner permissions"
-assert_contains "$OUT" "machine-local shell aliases (kdash-token)"
+assert_not_contains "$OUT" "kdash-token"
 
 it "dry run hands --dry-run to every sub-tool and runs no git"
 make_sandbox
@@ -478,13 +495,97 @@ run_bootstrap --dry-run repos
 assert_contains "$OUT" "+ git clone https://example.invalid/fork.git $SB/home/my dots"
 assert_not_contains "$OUT" "$SB/parent/dotfiles"
 
+# --- DOTFILES_LOCAL_RC -------------------------------------------------------
+KDASH="alias kdash-token='kubectl -n kubernetes-dashboard create token admin-user'"
+BLOCK_BEGIN="# >>> macos-base-config >>>"
+
+# blocks FILE -> how many managed blocks FILE has
+blocks() { grep -cxF "$BLOCK_BEGIN" "$1" || true; }
+
+it "the local rc block lands in both rc.local files, other lines kept"
+make_sandbox
+echo 'export MINE=1' > "$SB/home/.zshrc.local"
+sandbox_config "DOTFILES_LOCAL_RC=\"$KDASH\""
+run_bootstrap --no-pull dotfiles
+assert_eq "$RC" 0
+for rc in .zshrc.local .bashrc.local; do
+  assert_contains "$(cat "$SB/home/$rc")" "$KDASH"
+  assert_eq "$(blocks "$SB/home/$rc")" 1
+done
+assert_eq "$(head -1 "$SB/home/.zshrc.local")" "export MINE=1"
+
+it "a new rc.local file is private"
+assert_eq "$(stat -f %Lp "$SB/home/.bashrc.local")" 600
+
+it "a re-run replaces the block instead of adding one"
+sandbox_config 'DOTFILES_LOCAL_RC="alias k=kubectl"'
+run_bootstrap --no-pull dotfiles
+run_bootstrap --no-pull dotfiles
+assert_eq "$RC" 0
+assert_eq "$(blocks "$SB/home/.zshrc.local")" 1
+assert_contains "$(cat "$SB/home/.zshrc.local")" "alias k=kubectl"
+assert_not_contains "$(cat "$SB/home/.zshrc.local")" "kdash-token"
+assert_contains "$(cat "$SB/home/.zshrc.local")" "export MINE=1"
+
+it "an empty DOTFILES_LOCAL_RC removes the block, keeps the rest"
+sandbox_config 'DOTFILES_LOCAL_RC=""'
+run_bootstrap --no-pull dotfiles
+assert_eq "$RC" 0
+assert_eq "$(cat "$SB/home/.zshrc.local")" "export MINE=1"
+assert_eq "$(blocks "$SB/home/.bashrc.local")" 0
+
+it "no DOTFILES_LOCAL_RC creates no rc.local files"
+make_sandbox
+run_bootstrap --no-pull dotfiles
+assert_eq "$RC" 0
+[ -e "$SB/home/.zshrc.local" ] && fail ".zshrc.local created"
+[ -e "$SB/home/.bashrc.local" ] && fail ".bashrc.local created"
+
+it "a symlinked rc.local stays a symlink"
+make_sandbox
+echo 'export MINE=1' > "$SB/real.zsh"
+ln -s "$SB/real.zsh" "$SB/home/.zshrc.local"
+sandbox_config "DOTFILES_LOCAL_RC=\"$KDASH\""
+run_bootstrap --no-pull dotfiles
+[ -L "$SB/home/.zshrc.local" ] || fail "symlink replaced"
+assert_contains "$(cat "$SB/real.zsh")" "$KDASH"
+
+it "the block is valid for bash and zsh"
+bash -n "$SB/home/.bashrc.local" || fail "bash -n"
+if command -v zsh >/dev/null 2>&1; then zsh -n "$SB/real.zsh" || fail "zsh -n"; fi
+
+it "dry run announces the block but writes nothing"
+make_sandbox
+sandbox_config "DOTFILES_LOCAL_RC=\"$KDASH\""
+run_bootstrap --dry-run --no-pull dotfiles
+assert_eq "$RC" 0
+assert_contains "$OUT" "+ update the macos-base-config block in $SB/home/.zshrc.local"
+[ -e "$SB/home/.zshrc.local" ] && fail "written in dry run"
+
+it "a failing dotfiles bootstrap leaves the rc.local files alone"
+make_sandbox
+dotfiles_stub 1
+sandbox_config "DOTFILES_LOCAL_RC=\"$KDASH\""
+run_bootstrap --no-pull dotfiles
+assert_eq "$RC" 1
+[ -e "$SB/home/.zshrc.local" ] && fail "written after a failed bootstrap"
+
 # --- config.example.sh ------------------------------------------------------
 it "config.example.sh is a valid config with the defaults"
 load_config "$REPO/config.example.sh"; rc=$?
 assert_eq "$rc" 0
 assert_eq "$BOOTSTRAP_STEPS|$BOOTSTRAP_SKIP|$DOTFILES_DIR|$DOTFILES_URL|$DOTFILES_ASSUME_YES|$DOTFILES_TERMINALS|$DOTFILES_OMNISHELL_CONFIG" "||||0||"
-for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG; do
+assert_eq "$DOTFILES_LOCAL_RC" ""
+for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG DOTFILES_LOCAL_RC; do
   assert_contains "$(cat "$REPO/config.example.sh")" "$key="
 done
+
+it "the commented example in config.example.sh is a valid DOTFILES_LOCAL_RC"
+example="$(sed -n "/^#   DOTFILES_LOCAL_RC='/,/^#   '\$/s/^#   //p" "$REPO/config.example.sh")"
+assert_contains "$example" "kdash-token"
+f="$(write_config "$example")"
+load_config "$f"; rc=$?
+assert_eq "$rc" 0
+assert_contains "$DOTFILES_LOCAL_RC" "create token admin-user"
 
 echo "all $COUNT cases passed"
