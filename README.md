@@ -1,66 +1,80 @@
-# MacOS base settings
+# macOS base config
 
-## Keyboard Settings
+Set up a fresh Mac for **Windows / PC muscle memory** with a Swiss‑German ISO
+keyboard, plus the small system tweaks that go with it.
 
-### Swiss keyboard layout
+## Quick start
 
-- Load swiss keyboard layout from GitHub repository: <https://github.com/JtheGunner/swiss-windows-keyboard-layout-macos>
-- Follow the instructions in the README.md to install the custom keyboard layout
+```sh
+git clone git@github.com:JtheGunner/macos-base-config.git ~/Projects/macos-base-config
+cd ~/Projects/macos-base-config
+./bootstrap.sh            # or --dry-run first
+```
 
-### Windows keyboard layout
+`bootstrap.sh` clones/pulls the sibling repos listed in `repos.txt`, runs their
+`apply.sh`, then `macos-defaults.py`, then `ide-keymaps/apply.sh`. It never
+aborts the whole run on one missing piece. The manual, non‑scriptable steps
+(macOS permission prompts, VoiceOver, Gatekeeper) are printed at the end and
+listed below.
 
-- Download Karabiner-Elements via <https://karabiner-elements.pqrs.org/> and follow the install instructions
-- Follow the instructions in the GitHub repository <https://github.com/JtheGunner/karabiner-windows-keyboard-mapping-macos> for the configuration file to remap the keys to a Windows keyboard layout
+## What lives where
 
-### Change Font Settings
+| layer | repo / file | apply |
+|---|---|---|
+| **Swiss AltGr characters** (`@ \ ~ [] {} €`) — custom keyboard *layout* | [`swiss-windows-keyboard-layout-macos`](https://github.com/JtheGunner/swiss-windows-keyboard-layout-macos) | copy `.keylayout` → `~/Library/Keyboard Layouts/`, re‑login (see its README) |
+| **Windows key *behaviour*** (`Ctrl+C/V/Z`, word jump, `Alt+F4`, …) — Karabiner | [`karabiner-windows-keyboard-mapping-macos`](https://github.com/JtheGunner/karabiner-windows-keyboard-mapping-macos) | `./setup.sh` (fresh) or `./apply.sh` |
+| **macOS‑level shortcuts Karabiner can't do** (see below) | `macos-defaults.py` (this repo) | `python3 macos-defaults.py` |
+| **JetBrains keymap** `jeffry-default-macos-win Proper Redo` | `ide-keymaps/` (this repo) | `ide-keymaps/apply.sh` — see [its README](ide-keymaps/README.md) |
+| **VS Code / Antigravity keybindings** (generated from the JetBrains keymap) | [`intelli-key-port`](https://github.com/JtheGunner/intelli-key-port) + layers from `ide-keymaps/` (this repo) | `ide-keymaps/port-vscode.sh` — never a bare `./port.py` |
+| **shell / prompt / ghostty** | [`dotfiles`](https://github.com/JtheGunner/dotfiles) | `bootstrap.sh` |
 
-1. **Make the bold MacOS font thinner:**  
-   `defaults -currentHost write -g AppleFontSmoothing -int 1`
+## macOS‑level shortcuts Karabiner can't do
 
-2. **Change Microsoft Visual Studio Code Font:**  
-   Press `Ctrl + Shift + P` and search for **Preferences: Open User Settings (JSON)**  
-   Add or change the following settings:
+Karabiner is an event remapper with no awareness of app menus or text‑field
+focus, so a few things must be done at the macOS `defaults` level. `macos-defaults.py`
+does them idempotently, with a `restore-<timestamp>.sh` per run:
 
-    ```json
-    {
-        "editor.fontFamily": "'JetBrains Mono', 'Menlo', 'Monaco', 'Courier New', monospace",
-        "editor.fontSize": 12,
-        "editor.fontWeight": "100"
-    }
-    ```
+- **Mission Control `Ctrl+←/→` "Move a space"** (symbolic hotkeys 79‑82) is
+  disabled — otherwise macOS eats `Ctrl+Arrow` before any app and word
+  navigation never works in editors.
+- **Finder: the forward‑delete key → "Move to Bin"** via an *App Shortcut*
+  (`NSUserKeyEquivalents`). Menu‑aware, so it still forward‑deletes a character
+  inside a rename / search field (a Karabiner rule could not tell the
+  difference and broke text input).
+- `AppleFontSmoothing = 1` (thinner bold system font).
 
-## Productivity
+```sh
+python3 macos-defaults.py --show     # current state
+python3 macos-defaults.py --dry-run
+python3 macos-defaults.py            # apply  (log out / log in for the hotkeys + font)
+```
 
-### Install HomeBrew
+## Fonts
 
-Homebrew installs the stuff you need that Apple (or your Linux system) didn't.  
-`/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
+VS Code / editor font (paste into *Preferences: Open User Settings (JSON)*):
 
-### Install AltTab
+```json
+{
+  "editor.fontFamily": "'JetBrains Mono', 'Menlo', 'Monaco', 'Courier New', monospace",
+  "editor.fontSize": 12,
+  "editor.fontWeight": "100"
+}
+```
 
-AltTab is used simulate the Windows keyboard short Alt + Tab. (Change between opened windows)  
-Download via `https://alt-tab-macos.netlify.app/`  
-OR  
-Install by HomeBrew `brew install --cask alt-tab`
+## Apps (Homebrew)
 
-### Install uBar
+```sh
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+brew install --cask alt-tab      # Windows-style Alt+Tab window switching
+# uBar (Windows-style taskbar): https://ubarapp.com/
+```
 
-Boost your productivity with the most advanced and versatile app and window manager for the Mac.  
-Download via `https://ubarapp.com/`
+## General settings (manual)
 
-## Genral Settings
-
-### Allow apps from anywhere
-
-1. Open Terminal and run the following command:  
-   `sudo spctl --master-disable`
-2. Open System Preferences → Security & Privacy → General.
-3. Under "Allow apps downloaded from," select "Anywhere."
-4. You may be prompted to enter your administrator password to confirm the change.
-
-### disable VoiceOver
-
-This part is important that ctrl + f5 works as expected and not open the VoiceOver.
-
-1. Open System Preferences → Accessibility → VoiceOver.
-2. Uncheck the box next to "Enable VoiceOver" to disable it.
+- **Disable VoiceOver** — System Settings → Accessibility → VoiceOver → off.
+  Needed so `Ctrl+F5` isn't swallowed by VoiceOver.
+- **Gatekeeper / apps from anywhere** — `sudo spctl --master-disable`, then
+  System Settings → Privacy & Security → "Allow applications from: Anywhere".
+- **Karabiner permissions** — Driver Extension, Input Monitoring, Accessibility.
+  `karabiner-windows-keyboard-mapping-macos/setup.sh` opens the panes and lists
+  the steps.

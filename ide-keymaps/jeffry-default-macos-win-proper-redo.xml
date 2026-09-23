@@ -1,0 +1,71 @@
+<keymap version="1" name="jeffry-default-macos-win Proper Redo" parent="Default for XWin">
+  <action id="$Redo">
+    <keyboard-shortcut first-keystroke="shift ctrl z" />
+    <keyboard-shortcut first-keystroke="shift alt back_space" />
+    <keyboard-shortcut first-keystroke="ctrl y" />
+  </action>
+  <action id="ActivateBookmarksToolWindow">
+    <keyboard-shortcut first-keystroke="shift ctrl meta alt 2" />
+  </action>
+  <action id="ActivateCommitToolWindow">
+    <keyboard-shortcut first-keystroke="shift ctrl meta alt 0" />
+  </action>
+  <action id="ActivateDebugToolWindow">
+    <keyboard-shortcut first-keystroke="shift ctrl meta alt 5" />
+  </action>
+  <action id="ActivateFindToolWindow">
+    <keyboard-shortcut first-keystroke="shift ctrl meta alt 3" />
+  </action>
+  <action id="ActivateProblemsViewToolWindow">
+    <keyboard-shortcut first-keystroke="shift ctrl meta alt 6" />
+  </action>
+  <action id="ActivateProjectToolWindow">
+    <keyboard-shortcut first-keystroke="shift ctrl meta alt 1" />
+  </action>
+  <action id="ActivateRunToolWindow">
+    <keyboard-shortcut first-keystroke="shift ctrl meta alt 4" />
+  </action>
+  <action id="ActivateServicesToolWindow">
+    <keyboard-shortcut first-keystroke="shift ctrl meta alt 8" />
+  </action>
+  <action id="ActivateStructureToolWindow">
+    <keyboard-shortcut first-keystroke="shift ctrl meta alt 7" />
+  </action>
+  <action id="ActivateVersionControlToolWindow">
+    <keyboard-shortcut first-keystroke="shift ctrl meta alt 9" />
+  </action>
+  <action id="ChangesView.ShowCommitOptions" />
+  <action id="CommentByLineComment">
+    <keyboard-shortcut first-keystroke="ctrl slash" />
+    <keyboard-shortcut first-keystroke="ctrl divide" />
+    <keyboard-shortcut first-keystroke="ctrl #10000a7" />
+  </action>
+  <action id="EditorDeleteLine" />
+  <action id="GotoClass">
+    <keyboard-shortcut first-keystroke="ctrl o" />
+  </action>
+  <action id="GotoDeclaration">
+    <keyboard-shortcut first-keystroke="ctrl b" />
+    <mouse-shortcut keystroke="control button1" />
+    <mouse-shortcut keystroke="button2" />
+    <mouse-shortcut keystroke="meta button1" />
+  </action>
+  <action id="GotoFile">
+    <keyboard-shortcut first-keystroke="shift ctrl o" />
+  </action>
+  <action id="GotoSymbol">
+    <keyboard-shortcut first-keystroke="shift ctrl alt o" />
+  </action>
+  <action id="OverrideMethods" />
+  <action id="ShowSettings">
+    <keyboard-shortcut first-keystroke="ctrl alt s" />
+    <keyboard-shortcut first-keystroke="ctrl comma" />
+  </action>
+  <action id="copilot.diffBlock.discard" />
+  <action id="copilot.disableCopilot">
+    <keyboard-shortcut first-keystroke="shift ctrl alt n" />
+  </action>
+  <action id="copilot.enableCopilot">
+    <keyboard-shortcut first-keystroke="shift ctrl alt n" />
+  </action>
+</keymap>
