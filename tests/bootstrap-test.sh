@@ -86,6 +86,13 @@ parse_args --list-packages; assert_eq "$ACTION" list-packages
 it "--save-settings sets its action; the ids stay in CLI_STEPS"
 parse_args --save-settings alt-tab tabby; assert_eq "$ACTION|$CLI_STEPS" "save-settings|alt-tab tabby"
 
+it "--init-config takes the private repo's URL"
+parse_args --init-config git@example.test:me/private.git
+assert_eq "$ACTION|$INIT_CONFIG_URL" "init-config|git@example.test:me/private.git"
+out="$(parse_args --init-config 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "--init-config needs a git URL"
+
 it "unknown option is exit 2 with a message"
 out="$(parse_args --bogus 2>&1)"; rc=$?
 assert_eq "$rc" 2
@@ -1602,6 +1609,99 @@ run_bootstrap --dry-run --no-pull macos
 assert_eq "$RC" 0
 assert_contains "$OUT" "+ sudo spctl --master-disable"
 assert_not_contains "$(cat "$LOG")" "sudo"
+
+# --- the private config repo -----------------------------------------------
+CONFIG_URL="git@example.test:me/macos-private-config.git"
+CFG_DIR_REL=".config/macos-base-config"
+
+# config_git_stub -> git that logs, answers "remote get-url" with $SB/git-origin
+# and "status --porcelain" with $SB/git-status, and fails a pull when
+# $SB/git-pull-fails exists
+config_git_stub() {
+  cat > "$SB/bin/git" <<STUB
+#!/bin/bash
+echo "git \$*" >> "$LOG"
+case "\$*" in
+  *"remote get-url"*) cat "$SB/git-origin" 2>/dev/null ;;
+  *"status --porcelain"*) cat "$SB/git-status" 2>/dev/null ;;
+  *pull*) [ -e "$SB/git-pull-fails" ] && exit 1 ;;
+esac
+exit 0
+STUB
+  chmod +x "$SB/bin/git"
+}
+
+it "--init-config clones the private repo into a missing or empty config dir"
+make_sandbox
+config_git_stub
+run_bootstrap --init-config "$CONFIG_URL"
+assert_eq "$RC" 0
+assert_contains "$(cat "$LOG")" "git clone $CONFIG_URL $SB/home/$CFG_DIR_REL"
+assert_contains "$OUT" "next: ./bootstrap.sh"
+assert_not_contains "$OUT" "== summary"
+: > "$LOG"
+mkdir -p "$SB/home/$CFG_DIR_REL"
+run_bootstrap --init-config "$CONFIG_URL"
+assert_eq "$RC" 0
+assert_contains "$(cat "$LOG")" "git clone $CONFIG_URL $SB/home/$CFG_DIR_REL"
+
+it "--init-config leaves a dir with other files alone, exit 2"
+make_sandbox
+config_git_stub
+sandbox_config 'PACKAGES="@base"'
+run_bootstrap --init-config "$CONFIG_URL"
+assert_eq "$RC" 2
+assert_contains "$OUT" "$SB/home/$CFG_DIR_REL already has files"
+assert_not_contains "$(cat "$LOG")" "clone"
+
+it "--init-config on a checkout: same URL is set up, another URL is exit 2"
+make_sandbox
+config_git_stub
+mkdir -p "$SB/home/$CFG_DIR_REL/.git"
+echo "$CONFIG_URL" > "$SB/git-origin"
+run_bootstrap --init-config "$CONFIG_URL"
+assert_eq "$RC" 0
+assert_contains "$OUT" "already set up"
+assert_not_contains "$(cat "$LOG")" "clone"
+echo "git@example.test:someone/else.git" > "$SB/git-origin"
+run_bootstrap --init-config "$CONFIG_URL"
+assert_eq "$RC" 2
+assert_contains "$OUT" "is a checkout of git@example.test:someone/else.git"
+
+it "--init-config follows --config and only prints in a dry run"
+make_sandbox
+config_git_stub
+run_bootstrap --dry-run --init-config "$CONFIG_URL" --config "$SB/home/Cloud/mbc/config.sh"
+assert_eq "$RC" 0
+assert_contains "$OUT" "+ git clone $CONFIG_URL $SB/home/Cloud/mbc"
+assert_eq "$(cat "$LOG")" ""
+
+it "repos pulls the private config checkout"
+make_sandbox
+config_git_stub
+mkdir -p "$SB/home/$CFG_DIR_REL/.git"
+run_bootstrap repos
+assert_eq "$RC" 0
+assert_contains "$(cat "$LOG")" "git -C $SB/home/$CFG_DIR_REL pull --ff-only"
+: > "$LOG"
+run_bootstrap --no-pull repos
+assert_not_contains "$(cat "$LOG")" "$CFG_DIR_REL pull"
+
+it "repos keeps a config checkout with local changes, warns about a failed pull"
+make_sandbox
+config_git_stub
+mkdir -p "$SB/home/$CFG_DIR_REL/.git"
+echo " M config.sh" > "$SB/git-status"
+run_bootstrap repos
+assert_eq "$RC" 0
+assert_contains "$OUT" "warn: local changes in $SB/home/$CFG_DIR_REL - not pulled"
+assert_not_contains "$(cat "$LOG")" "$CFG_DIR_REL pull"
+rm "$SB/git-status"
+touch "$SB/git-pull-fails"
+run_bootstrap repos
+assert_eq "$RC" 0
+assert_contains "$OUT" "warn: pull failed in $SB/home/$CFG_DIR_REL"
+assert_contains "$OUT" "  repos      ok"
 
 # --- the brew step ----------------------------------------------------------
 INSTALLER_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"

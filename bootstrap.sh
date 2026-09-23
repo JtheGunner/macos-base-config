@@ -7,6 +7,7 @@
 #   ./bootstrap.sh --skip dotfiles   run every step but these
 #   ./bootstrap.sh --dry-run         show what would happen
 #   ./bootstrap.sh --list-packages   what PACKAGES can pick, and what is picked
+#   ./bootstrap.sh --init-config URL clone your private config repo (new Mac)
 #   ./bootstrap.sh --save-settings   save the app settings into SETTINGS_DIR
 #   ./bootstrap.sh --help            all options; --list for the steps
 #
@@ -29,6 +30,11 @@ case "$ACTION" in
   help) usage; exit 0 ;;
   list) print_step_list; exit 0 ;;
 esac
+# before the config loads: on a new Mac it doesn't exist yet
+if [ "$ACTION" = init-config ]; then
+  init_config "$INIT_CONFIG_URL" "$(dirname "${CONFIG_PATH:-$(default_config_path)}")"
+  exit $?
+fi
 load_config "$CONFIG_PATH" || exit 2
 if [ "$ACTION" = list-packages ]; then
   user_bin_dirs_on_path

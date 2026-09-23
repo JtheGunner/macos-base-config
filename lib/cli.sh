@@ -7,7 +7,7 @@ ALL_STEPS="repos brew extras karabiner keyboard macos jetbrains vscode editor ap
 
 step_description() {
   case "$1" in
-    repos)     echo "clone missing / pull existing sibling repos (repos.txt)" ;;
+    repos)     echo "clone missing / pull existing sibling repos (repos.txt), pull the private config repo" ;;
     brew)      echo "install Homebrew if missing, then the selected brew / App Store packages (PACKAGES)" ;;
     extras)    echo "install the selected packages that don't come from Homebrew (script, npm, pipx, uv, go) and build the nas-mount app" ;;
     karabiner) echo "apply the Karabiner config (needs Karabiner-Elements)" ;;
@@ -69,12 +69,13 @@ select_steps() {
   echo "${selected# }"
 }
 
-# parse_args ARG... -> sets ACTION (run|list|list-packages|save-settings|help), CLI_STEPS, CLI_SKIP,
+# parse_args ARG... -> sets ACTION (run|list|list-packages|save-settings|
+# init-config|help), INIT_CONFIG_URL, CLI_STEPS, CLI_SKIP,
 # DRY_RUN, NO_PULL (true|false), CONFIG_PATH. Return 2 on a usage error.
 # Step names are validated later by select_steps.
 parse_args() {
   ACTION=run; CLI_STEPS=""; CLI_SKIP=""
-  DRY_RUN=false; NO_PULL=false; CONFIG_PATH=""
+  DRY_RUN=false; NO_PULL=false; CONFIG_PATH=""; INIT_CONFIG_URL=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --skip)
@@ -87,6 +88,9 @@ parse_args() {
       --no-pull) NO_PULL=true ;;
       --list-packages) ACTION=list-packages ;;
       --save-settings) ACTION=save-settings ;;
+      --init-config)
+        [ $# -ge 2 ] || { usage_error "--init-config needs a git URL"; return 2; }
+        ACTION=init-config; INIT_CONFIG_URL="$2"; shift ;;
       --list) ACTION=list ;;
       -h | --help) ACTION=help ;;
       -*) usage_error "unknown option: $1"; return 2 ;;
@@ -123,6 +127,8 @@ options:
   --config <path>   config file (default: ~/.config/macos-base-config/config.sh)
   --list            list the steps
   --list-packages   list the package catalog, the selection and what is installed
+  --init-config <git-url>
+                    clone your private config repo into the config dir (new Mac)
   --save-settings [app ...]
                     export the app settings (apps/registry.txt) into SETTINGS_DIR
   -h, --help        this help
