@@ -228,6 +228,41 @@ out="$(cd "$REPO" && PACKAGE_CATALOG="$f" select_packages "*" 2>&1)"; rc=$?
 assert_eq "$rc" 2
 assert_contains "$out" "unknown package: *"
 
+it "package_state: apps by folder, commands on PATH, - means no check"
+mkdir -p "$TMP/apps/Some App.app"
+assert_eq "$(APPLICATIONS_DIR="$TMP/apps" package_state cask "Some App")" installed
+assert_eq "$(APPLICATIONS_DIR="$TMP/apps" package_state mas WhatsApp)" missing
+assert_eq "$(package_state pipx sh)" installed
+assert_eq "$(package_state npm no-such-command-xyz)" missing
+assert_eq "$(package_state formula -)" ""
+
+it "write_brewfiles: taps first, catalog order; App Store entries apart, with mas"
+f="$(write_catalog "${TEST_CATALOG_LINES[@]}")"
+d="$(mktemp -d "$TMP/bf.XXXXXX")"
+APPLICATIONS_DIR="$TMP/none" PACKAGE_CATALOG="$f" write_brewfiles "$d" "gh tool firefox app whatsapp claude" >/dev/null
+assert_eq "$(cat "$d/Brewfile")" 'tap "user/tap"
+brew "gh"
+brew "user/tap/tool"
+cask "firefox"
+cask "user/tap/app"'
+assert_eq "$(cat "$d/Brewfile.mas")" 'brew "mas"
+mas "WhatsApp", id: 310633997'
+
+it "apps already installed are left out; an empty Brewfile is not written"
+mkdir -p "$TMP/apps2/Some App.app" "$TMP/apps2/WhatsApp.app"
+d="$(mktemp -d "$TMP/bf.XXXXXX")"
+out="$(APPLICATIONS_DIR="$TMP/apps2" PACKAGE_CATALOG="$f" write_brewfiles "$d" "app whatsapp")"
+assert_contains "$out" "app: Some App.app already in $TMP/apps2 - left alone"
+assert_contains "$out" "whatsapp: WhatsApp.app already in $TMP/apps2 - left alone"
+[ -e "$d/Brewfile" ] && fail "wrote an empty Brewfile"
+[ -e "$d/Brewfile.mas" ] && fail "wrote an empty Brewfile.mas"
+
+it "write_brewfiles writes nothing for an empty selection, removes stale files"
+echo old > "$d/Brewfile"
+PACKAGE_CATALOG="$f" write_brewfiles "$d" "" >/dev/null
+[ -e "$d/Brewfile" ] && fail "stale Brewfile kept"
+true
+
 it "missing explicit config is exit 2"
 out="$(load_config "$TMP/missing.sh" 2>&1)"; rc=$?
 assert_eq "$rc" 2
@@ -713,9 +748,9 @@ make_sandbox() {
   SB="$(mktemp -d "$TMP/sb.XXXXXX")"
   APP="$SB/parent/macos-base-config"
   LOG="$SB/calls.log"
-  mkdir -p "$APP" "$SB/home/.config/karabiner" "$SB/bin" "$SB/Karabiner-Elements.app"
+  mkdir -p "$APP" "$SB/home/.config/karabiner" "$SB/bin" "$SB/Karabiner-Elements.app" "$SB/Applications" "$SB/tmp"
   : > "$LOG"
-  cp -R "$REPO/bootstrap.sh" "$REPO/lib" "$REPO/repos.txt" "$REPO/Brewfile" "$REPO/packages" "$APP/"
+  cp -R "$REPO/bootstrap.sh" "$REPO/lib" "$REPO/repos.txt" "$REPO/packages" "$APP/"
   stub "$APP/ide-keymaps/apply.sh" jetbrains-apply
   stub "$APP/ide-keymaps/port-vscode.sh" port-vscode
   mkdir -p "$APP/editor-settings" "$APP/apps"
@@ -741,10 +776,11 @@ sandbox_config() {
 
 # run_bootstrap ARG... -> OUT (stdout + stderr), RC. stdin is /dev/null.
 run_bootstrap() {
-  OUT="$(env -u XDG_CONFIG_HOME -u DOTFILES_TERMINALS HOME="$SB/home" \
+  OUT="$(env -u XDG_CONFIG_HOME -u DOTFILES_TERMINALS -u PACKAGES HOME="$SB/home" \
     PATH="$SB/bin:/usr/bin:/bin" KARABINER_APP="$SB/Karabiner-Elements.app" \
     BREW_CANDIDATES="$SB/homebrew/bin/brew" KARABINER_WAIT_SECONDS=0 \
     KEYBOARD_SYSTEM_DIR="$SB/system-layouts" SWIFT="${SWIFT_BIN:-$SB/bin/swift}" \
+    APPLICATIONS_DIR="$SB/Applications" TMPDIR="$SB/tmp/" PACKAGE_CATALOG="${SB_CATALOG:-}" \
     /bin/bash "$APP/bootstrap.sh" "$@" 2>&1 </dev/null)"
   RC=$?
 }
@@ -909,7 +945,8 @@ make_sandbox
 rmdir "$SB/Karabiner-Elements.app"
 run_bootstrap --no-pull karabiner
 assert_eq "$RC" 0
-assert_contains "$OUT" "  karabiner  skipped  (Karabiner-Elements not installed - run ./bootstrap.sh brew"
+assert_contains "$OUT" "Karabiner-Elements not installed - add karabiner-elements to PACKAGES, then run ./bootstrap.sh brew"
+assert_contains "$OUT" "  karabiner  skipped  (Karabiner-Elements not installed"
 assert_eq "$(cat "$LOG")" ""
 
 it "karabiner opens the app once when its config dir is missing"
@@ -1090,12 +1127,82 @@ installer_stub() {
   chmod +x "$SB/bin/curl"
 }
 
-it "brew with Homebrew on PATH only runs brew bundle"
+# brew_stub [EXIT] [FAIL_ON] -> brew that logs its arguments and, for
+# --file=X, X's lines as "  | <line>"; exits EXIT, or 1 only when an argument
+# contains FAIL_ON
+brew_stub() {
+  cat > "$SB/bin/brew" <<EOF
+#!/bin/bash
+echo "brew \$*" >> "$LOG"
+for arg in "\$@"; do
+  case "\$arg" in --file=*) sed 's/^/  | /' "\${arg#--file=}" >> "$LOG" ;; esac
+done
+case "${2:-}" in ?*) case "\$*" in *"${2:-}"*) exit 1 ;; esac ;; esac
+exit ${1:-0}
+EOF
+  chmod +x "$SB/bin/brew"
+}
+
+# brew_log -> $LOG with the random temp dir replaced by <tmp>
+brew_log() { sed "s|$SB/tmp/macos-base-config\.[A-Za-z0-9]*|<tmp>|g" "$LOG"; }
+
+BASE_BREWFILE='  | tap "otuerk/sidebar"
+  | cask "karabiner-elements"
+  | cask "alt-tab"
+  | cask "otuerk/sidebar/sidebar"
+  | cask "font-jetbrains-mono"'
+
+it "brew bundles the generated Brewfile: @base without a config"
 make_sandbox
+brew_stub
 run_bootstrap --no-pull brew
 assert_eq "$RC" 0
-assert_eq "$(cat "$LOG")" "brew bundle --file=$APP/Brewfile --no-upgrade"
+assert_eq "$(brew_log)" "brew bundle --file=<tmp>/Brewfile --no-upgrade
+$BASE_BREWFILE"
+assert_contains "$OUT" '    cask "alt-tab"'
 assert_contains "$OUT" "  brew       ok"
+[ -z "$(ls -A "$SB/tmp")" ] || fail "temp Brewfile dir left behind"
+
+it "brew installs only the selected packages; PACKAGES=\"\" installs nothing"
+make_sandbox
+brew_stub
+sandbox_config 'PACKAGES="font-jetbrains-mono"'
+run_bootstrap --no-pull brew
+assert_eq "$(brew_log)" "brew bundle --file=<tmp>/Brewfile --no-upgrade
+  | cask \"font-jetbrains-mono\""
+: > "$LOG"
+sandbox_config 'PACKAGES=""'
+run_bootstrap --no-pull brew
+assert_eq "$RC" 0
+assert_eq "$(cat "$LOG")" ""
+assert_contains "$OUT" "no brew packages to install"
+
+it "the Brewfile leaves apps already in /Applications alone"
+make_sandbox
+brew_stub
+mkdir -p "$SB/Applications/AltTab.app"
+run_bootstrap --no-pull brew
+assert_not_contains "$(cat "$LOG")" "alt-tab"
+assert_contains "$(cat "$LOG")" 'cask "karabiner-elements"'
+assert_contains "$OUT" "alt-tab: AltTab.app already in $SB/Applications - left alone"
+
+it "App Store packages run in their own bundle; a failure asks to sign in"
+make_sandbox
+SB_CATALOG="$SB/catalog.txt"
+printf '%s\n' 'firefox | cask | firefox | Firefox | web | Web browser' \
+  'whatsapp | mas | 310633997 | WhatsApp | chat | Messenger' > "$SB_CATALOG"
+sandbox_config 'PACKAGES="@all"'
+brew_stub 0 Brewfile.mas
+run_bootstrap --no-pull brew macos
+SB_CATALOG=""
+assert_eq "$RC" 1
+assert_eq "$(brew_log | grep -v '^python3 ')" "brew bundle --file=<tmp>/Brewfile --no-upgrade
+  | cask \"firefox\"
+brew bundle --file=<tmp>/Brewfile.mas --no-upgrade
+  | brew \"mas\"
+  | mas \"WhatsApp\", id: 310633997"
+assert_contains "$OUT" "  brew       failed   (App Store: sign in, then re-run)"
+assert_contains "$OUT" "  macos      ok"
 
 it "brew installs Homebrew when missing, then bundles"
 make_sandbox
@@ -1103,8 +1210,8 @@ rm "$SB/bin/brew"
 installer_stub
 run_bootstrap --no-pull brew
 assert_eq "$RC" 0
-assert_eq "$(cat "$LOG")" "curl -fsSL $INSTALLER_URL
-brew bundle --file=$APP/Brewfile --no-upgrade"
+assert_eq "$(brew_log)" "curl -fsSL $INSTALLER_URL
+brew bundle --file=<tmp>/Brewfile --no-upgrade"
 
 it "brew uses a Homebrew that is installed but not on PATH"
 make_sandbox
@@ -1113,7 +1220,7 @@ stub "$SB/homebrew/bin/brew" brew
 run_bootstrap --no-pull brew dotfiles
 assert_eq "$RC" 0
 assert_not_contains "$(cat "$LOG")" "curl"
-assert_contains "$(cat "$LOG")" "brew bundle --file=$APP/Brewfile --no-upgrade"
+assert_contains "$(brew_log)" "brew bundle --file=<tmp>/Brewfile --no-upgrade"
 assert_contains "$OUT" "  dotfiles   ok"
 
 it "a failed Homebrew install fails the step, later steps still run"
@@ -1126,29 +1233,35 @@ assert_contains "$OUT" "  brew       failed   (Homebrew install failed)"
 assert_contains "$OUT" "  macos      ok"
 assert_not_contains "$(cat "$LOG")" "brew bundle"
 
-it "a failing brew bundle fails the step"
-make_sandbox
-stub "$SB/bin/brew" brew 1
-run_bootstrap --no-pull brew
-assert_eq "$RC" 1
-assert_contains "$OUT" "  brew       failed   (brew bundle)"
-
-it "BREW_BUNDLE_EXTRA runs a second bundle"
+it "a failing brew bundle fails the step, the extra Brewfile still runs"
 make_sandbox
 echo 'cask "firefox"' > "$SB/home/Brewfile.local"
 sandbox_config 'BREW_BUNDLE_EXTRA="~/Brewfile.local"'
+brew_stub 1
+run_bootstrap --no-pull brew
+assert_eq "$RC" 1
+assert_contains "$OUT" "  brew       failed   (brew bundle)"
+assert_contains "$(cat "$LOG")" "brew bundle --file=$SB/home/Brewfile.local --no-upgrade"
+
+it "BREW_BUNDLE_EXTRA runs after the catalog bundle, also with PACKAGES=\"\""
+make_sandbox
+brew_stub
+echo 'cask "firefox"' > "$SB/home/Brewfile.local"
+sandbox_config 'BREW_BUNDLE_EXTRA="~/Brewfile.local"' 'PACKAGES=""'
 run_bootstrap --no-pull brew
 assert_eq "$RC" 0
-assert_eq "$(cat "$LOG")" "brew bundle --file=$APP/Brewfile --no-upgrade
-brew bundle --file=$SB/home/Brewfile.local --no-upgrade"
+assert_eq "$(brew_log)" "brew bundle --file=$SB/home/Brewfile.local --no-upgrade
+  | cask \"firefox\""
+assert_not_contains "$OUT" "no brew packages to install"
 
-it "dry run announces the Homebrew install and the bundle, runs nothing"
+it "dry run shows the Homebrew install and the Brewfile, runs nothing"
 make_sandbox
 rm "$SB/bin/brew"
 run_bootstrap --dry-run --no-pull brew
 assert_eq "$RC" 0
 assert_contains "$OUT" "+ install Homebrew: /bin/bash -c \"\$(curl -fsSL $INSTALLER_URL)\""
-assert_contains "$OUT" "+ brew bundle --file=$APP/Brewfile --no-upgrade"
+assert_contains "$OUT" '    cask "font-jetbrains-mono"'
+assert_contains "$OUT" "+ brew bundle --file=$SB/tmp/macos-base-config."
 assert_eq "$(cat "$LOG")" ""
 
 # --- the dotfiles step ------------------------------------------------------

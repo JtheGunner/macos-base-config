@@ -8,7 +8,7 @@ ALL_STEPS="repos brew karabiner keyboard macos jetbrains vscode editor apps dotf
 step_description() {
   case "$1" in
     repos)     echo "clone missing / pull existing sibling repos (repos.txt)" ;;
-    brew)      echo "install Homebrew if missing, then the apps and fonts in the Brewfile" ;;
+    brew)      echo "install Homebrew if missing, then the selected brew / App Store packages (PACKAGES)" ;;
     karabiner) echo "apply the Karabiner config (needs Karabiner-Elements)" ;;
     keyboard)  echo "install and enable the Custom Swiss German keyboard layout" ;;
     macos)     echo "macOS defaults: system hotkeys, Finder shortcut, font smoothing, Gatekeeper" ;;

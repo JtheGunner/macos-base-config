@@ -88,3 +88,46 @@ select_packages() {
     }
   '
 }
+
+# package_state SOURCE CHECK -> "installed" or "missing"; empty when CHECK is
+# "-" (the source checks itself). Apps by their folder in APPLICATIONS_DIR,
+# everything else as a command on PATH.
+package_state() {
+  [ "$2" = - ] && { echo; return 0; }
+  case "$1" in
+    cask | mas | applet | manual) [ -d "$APPLICATIONS_DIR/$2.app" ] ;;
+    *) command -v "$2" >/dev/null 2>&1 ;;
+  esac && echo installed || echo missing
+}
+
+# write_brewfiles DIR "<ids>" -> DIR/Brewfile (formulae, casks and their
+# taps) and DIR/Brewfile.mas (App Store entries plus mas itself), each only
+# when it has entries. An app already in APPLICATIONS_DIR is left out: brew
+# refuses to install over an app it didn't install, failing the whole bundle.
+write_brewfiles() {
+  local dir="$1" rows id source ref check _category _description tap
+  local taps="" entries="" store=""
+  rows="$(catalog_rows)" || return 2
+  while IFS=$'\t' read -r id source ref check _category _description; do
+    case " $2 " in *" $id "*) ;; *) continue ;; esac
+    case "$source" in formula | cask | mas) ;; *) continue ;; esac
+    if [ "$source" != formula ] && [ "$(package_state "$source" "$check")" = installed ]; then
+      echo "  $id: $check.app already in $APPLICATIONS_DIR - left alone"
+      continue
+    fi
+    case "$source" in
+      formula) entries="${entries}brew \"$ref\""$'\n' ;;
+      cask) entries="${entries}cask \"$ref\""$'\n' ;;
+      mas) store="${store}mas \"$check\", id: $ref"$'\n' ;;
+    esac
+    case "$source:$ref" in
+      mas:*) ;;
+      */*/*)
+        tap="${ref%/*}"
+        case "$taps" in *"tap \"$tap\""*) ;; *) taps="${taps}tap \"$tap\""$'\n' ;; esac ;;
+    esac
+  done <<< "$rows"
+  rm -f "$dir/Brewfile" "$dir/Brewfile.mas"
+  [ -z "$entries" ] || printf '%s%s' "$taps" "$entries" > "$dir/Brewfile"
+  [ -z "$store" ] || printf 'brew "mas"\n%s' "$store" > "$dir/Brewfile.mas"
+}
