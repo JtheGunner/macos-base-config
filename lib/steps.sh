@@ -162,6 +162,18 @@ write_local_rc() {
   rm -f "$tmp"
 }
 
+# The dotfiles bootstrap exits non-zero when its "repoint every stow link to
+# this checkout?" prompt is declined or has no terminal to ask - its own hint
+# (--yes) is not an option here. The exit code can't tell that apart from other
+# failures, so the hint is conditional.
+explain_dotfiles_checkout_prompt() {
+  echo "  hint: if it stopped at \"repoint every stow link ...?\" (declined, or no terminal to ask):" >&2
+  if [ "$DOTFILES_ASSUME_YES" != 1 ]; then
+    echo "        - set DOTFILES_ASSUME_YES=1 in $CONFIG_FILE to switch without asking, or" >&2
+  fi
+  echo "        - set DOTFILES_DIR in $CONFIG_FILE to the checkout the links already use" >&2
+}
+
 step_dotfiles() {
   local dir omnishell_target rc=0
   dir="$(sibling_dir dotfiles)"
@@ -181,6 +193,7 @@ step_dotfiles() {
     DOTFILES_TERMINALS="$DOTFILES_TERMINALS" bash "$dir/bootstrap.sh" "$@" || rc=$?
     if [ "$rc" -ne 0 ]; then
       STEP_FAIL_REASON="exit $rc"
+      explain_dotfiles_checkout_prompt
       return 1
     fi
   fi
