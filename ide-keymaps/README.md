@@ -21,7 +21,8 @@ git‑diffable fallback: ~1 KB, regenerated on demand.
 | `jeffry-default-macos-win-proper-redo.xml` | the keymap (action overrides on top of *Default for XWin*); installed as `jeffry-default-macos-win Proper Redo.xml`     |
 | `DATE`                                     | when + which IDE config dir it was last pulled from                                                                    |
 | `sync.sh`                                  | live `…/JetBrains/<IDE>/keymaps/` → this repo. Run after editing the keymap in PhpStorm.                               |
-| `apply.sh`                                 | this repo → the IDE config + set it active (`options/mac/keymap.xml`). Quit the IDE first.                             |
+| `apply.sh`                                 | this repo → the IDE config + set it active (`options/mac/keymap.xml`); terminal *Use Option as Meta key* off. Quit the IDE first. |
+| `set-terminal-option.py`                   | sets one option in `options/terminal.xml` (used by `apply.sh`), keeps the others, backs the file up                    |
 | `port-vscode.sh`                           | runs `intelli-key-port` with this machine's layers: `windows-keymap`, `karabiner-winkeys`, then the personal one below. |
 | `intelli-key-port-personal.jsonc`          | personal layer: `Ctrl+Y` redo, `Ctrl+S` save, numpad zoom, `Shift+Enter` terminal newline, …                           |
 

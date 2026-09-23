@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Restore the tracked keymap into the JetBrains IDE config and make it active.
+# Restore the tracked keymap into the JetBrains IDE config and make it active,
+# and turn the terminal's "Use Option as Meta key" off (AltGr characters
+# would turn into escape sequences in the IDE terminal otherwise).
 #
 #   ./apply.sh            all PhpStorm*/IntelliJIdea* config dirs found
 #   ./apply.sh --dry-run
@@ -32,6 +34,7 @@ while IFS= read -r cfg; do
   if $DRY; then
     echo "  would copy   $FILE -> $km/$NAME.xml"
     echo "  would set    <active_keymap name=\"$NAME\"/> in options/mac/keymap.xml"
+    python3 "$HERE/set-terminal-option.py" "$cfg/options/terminal.xml" useOptionAsMetaKey false --dry-run
     continue
   fi
   mkdir -p "$km" "$(dirname "$act")"
@@ -47,6 +50,7 @@ while IFS= read -r cfg; do
 </application>
 XML
   echo "  active keymap -> $NAME"
+  python3 "$HERE/set-terminal-option.py" "$cfg/options/terminal.xml" useOptionAsMetaKey false
 done < <(find "$JB" -maxdepth 1 -type d \( -name 'PhpStorm*' -o -name 'IntelliJIdea*' \) | sort)
 
 [ "$found" = 1 ] || { echo "no JetBrains config dirs under $JB"; exit 1; }

@@ -57,7 +57,8 @@ the summary at the end (exit code 1), it never aborts the rest.
    ├─ repos       clone / pull each sibling repo (repos.txt) into the parent folder
    ├─ brew        Homebrew (installed if missing) + the Brewfile: Karabiner, AltTab, Sidebar, font
    ├─ karabiner   Karabiner config → ~/.config/karabiner   (starts Karabiner once if needed)
-   ├─ macos       macos-defaults.py: system hotkeys, Finder shortcut, font smoothing
+   ├─ keyboard    Custom Swiss German layout → ~/Library/Keyboard Layouts, enabled + selected
+   ├─ macos       macos-defaults.py: system hotkeys, Finder shortcut, font smoothing (+ Gatekeeper, opt-in)
    ├─ jetbrains   JetBrains keymap → IDE config, set active (skipped until PhpStorm has a config)
    ├─ vscode      same keymap → VS Code / Antigravity         (same condition)
    ├─ dotfiles    the dotfiles repo's own bootstrap.sh: shell, prompt, git, tmux, Ghostty
@@ -82,7 +83,8 @@ step named, every step runs.
 | 📥 | `repos`     | clone missing / pull existing sibling repos         |
 | 🍺 | `brew`      | Homebrew installer if missing, `brew bundle`        |
 | ⌨️  | `karabiner` | `karabiner-windows-keyboard-mapping-macos/apply.sh` |
-| 🛠️ | `macos`     | `macos-defaults.py`                                 |
+| 🇨🇭 | `keyboard`  | layout copy + `enable-input-source.swift`           |
+| 🛠️ | `macos`     | `macos-defaults.py`, Gatekeeper if opted in         |
 | 🧠 | `jetbrains` | `ide-keymaps/apply.sh`                              |
 | 💻 | `vscode`    | `ide-keymaps/port-vscode.sh`                        |
 | 🐚 | `dotfiles`  | `dotfiles/bootstrap.sh`                             |
@@ -117,6 +119,7 @@ cp config.example.sh ~/.config/macos-base-config/config.sh
 | `BOOTSTRAP_STEPS`           | all steps           | steps to run when none are named on the command line                                                                   |
 | `BOOTSTRAP_SKIP`            | —                   | steps never to run on this machine                                                                                     |
 | `BREW_BUNDLE_EXTRA`         | —                   | extra Brewfile for this machine's own apps, installed after the repo's `Brewfile`                                      |
+| `MACOS_DISABLE_GATEKEEPER`  | `0`                 | `1` = allow apps from anywhere (`sudo spctl --master-disable`); macOS asks you to confirm in Privacy & Security       |
 | `DOTFILES_DIR`              | `<parent>/dotfiles` | dotfiles checkout to use, e.g. an existing `~/Git/dotfiles`                                                            |
 | `DOTFILES_URL`              | URL in `repos.txt`  | clone URL, e.g. a fork                                                                                                 |
 | `DOTFILES_ASSUME_YES`       | `0`                 | `1` = repoint stow links from another checkout without asking                                                          |
@@ -141,10 +144,10 @@ stops the bootstrap before any step runs.
 
 |    | Piece                                                                       | Repo / file                                                                                                          | Apply                                                               |
 |:--:|-----------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------|
-| 🇨🇭 | **AltGr characters** (`@ # \| \ ~ [] {} €`): custom keyboard *layout*       | [`swiss-windows-keyboard-layout-macos`](https://github.com/JtheGunner/swiss-windows-keyboard-layout-macos)           | manual: see [Manual steps](#-manual-steps)                          |
+| 🇨🇭 | **AltGr characters** (`@ # \| \ ~ [] {} €`): custom keyboard *layout*       | [`swiss-windows-keyboard-layout-macos`](https://github.com/JtheGunner/swiss-windows-keyboard-layout-macos)           | the `keyboard` step installs and enables it                         |
 | ⌨️  | **Windows key behaviour** (`Ctrl+C/V/Z`, word jump, `Alt+F4`, …): Karabiner | [`karabiner-windows-keyboard-mapping-macos`](https://github.com/JtheGunner/karabiner-windows-keyboard-mapping-macos) | `./setup.sh` (fresh Mac) or `./apply.sh`: bootstrap runs `apply.sh` |
 | 🛠️ | **macOS-level shortcuts Karabiner can't do**                                | `macos-defaults.py` (this repo)                                                                                      | `python3 macos-defaults.py`: bootstrap runs it                      |
-| 🧠 | **JetBrains keymap** `jeffry-default-macos-win Proper Redo`                 | `ide-keymaps/` (this repo): [README](ide-keymaps/README.md)                                                          | `ide-keymaps/apply.sh` (quit the IDE first): bootstrap runs it      |
+| 🧠 | **JetBrains keymap** `jeffry-default-macos-win Proper Redo`                 | `ide-keymaps/` (this repo): [README](ide-keymaps/README.md)                                                          | `ide-keymaps/apply.sh` (quit the IDE first): bootstrap runs it; also turns the terminal's *Use Option as Meta key* off |
 | 💻 | **VS Code / Antigravity keybindings**, generated from the JetBrains keymap  | [`intelli-key-port`](https://github.com/JtheGunner/intelli-key-port) + layers from `ide-keymaps/`                    | `ide-keymaps/port-vscode.sh`: bootstrap runs it                     |
 | 🐚 | **Shell, prompt, git, tmux, Ghostty**                                       | [`dotfiles`](https://github.com/JtheGunner/dotfiles)                                                                 | its own `bootstrap.sh`: the `dotfiles` step runs it                 |
 
@@ -170,8 +173,8 @@ should type. The pieces are set up to keep both working:
 | 💻 | `port-vscode.sh`  | carries those bindings over to VS Code / Antigravity                                                                                       |
 
 Result: **Alt+digit** opens a tool window, **AltGr+digit** types the character.
-The PhpStorm terminal needs one more setting, listed under
-[Manual steps](#-manual-steps).
+In the PhpStorm terminal, *Use Option as Meta key* must be off, or AltGr
+characters turn into escape sequences. `ide-keymaps/apply.sh` turns it off.
 
 ---
 
@@ -185,6 +188,8 @@ per run:
 - **Mission Control `Ctrl+←/→` "Move a space"** (symbolic hotkeys 79‑82) is
   disabled. Otherwise, macOS takes `Ctrl+Arrow` before any app sees it, and word
   navigation never works in editors.
+- **"Turn VoiceOver on or off"** (symbolic hotkey 59, `Cmd+F5`) is disabled.
+  Karabiner sends `Ctrl+F5` as `Cmd+F5`, which would start VoiceOver.
 - **Finder: forward-delete key → "Move to Bin"** via an *App Shortcut*
   (`NSUserKeyEquivalents`). It is menu-aware, so it still deletes forward inside
   a rename or search field. A Karabiner rule could not tell the difference.
@@ -200,16 +205,15 @@ python3 macos-defaults.py            # apply; log out / in for the hotkeys + fon
 
 ## ✋ Manual steps
 
-The `manual` step prints a reminder of these. None of them can be
-scripted reliably.
+The `manual` step prints a reminder of these. macOS doesn't let a script do
+them.
 
-|    | Step                               | How                                                                                                                                                                                       |
-|:--:|------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 🇨🇭 | **Keyboard layout**                | in `swiss-windows-keyboard-layout-macos`: `sudo cp CustomSwissGerman.* "/Library/Keyboard Layouts/"`, add *Custom Swiss German* under System Settings → Keyboard → Input Sources, restart |
-| 🔐 | **Karabiner permissions**          | Driver Extension, Input Monitoring, Accessibility. `karabiner-windows-keyboard-mapping-macos/setup.sh` opens the panes and lists the steps                                                |
-| 🖥️ | **PhpStorm terminal**              | Settings → Tools → Terminal → **"Use Option as Meta key" off**. Otherwise AltGr characters turn into escape sequences in the IDE console                                                  |
-| 🔇 | **Disable VoiceOver**              | System Settings → Accessibility → VoiceOver → off, so `Ctrl+F5` isn't taken by VoiceOver                                                                                                  |
-| 🛡️ | **Gatekeeper: apps from anywhere** | `sudo spctl --master-disable`, then System Settings → Privacy & Security → "Allow applications from: Anywhere"                                                                            |
+|    | Step                      | How                                                                                                                                         |
+|:--:|---------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| 🔐 | **Karabiner permissions** | Driver Extension, Input Monitoring, Accessibility. `karabiner-windows-keyboard-mapping-macos/setup.sh` opens the panes and lists the steps |
+| 🇨🇭 | **Input source**          | check *Custom Swiss German* under System Settings → Keyboard → Input Sources, then log out and in. The `keyboard` step enables it when it can |
+| 🛡️ | **Gatekeeper**            | only with `MACOS_DISABLE_GATEKEEPER=1`: confirm "Allow applications from: Anywhere" under Privacy & Security (the `macos` step opens it)    |
+| 🔑 | **Licenses**              | AltTab (Pro) and Sidebar: enter the keys from your password manager in each app                                                             |
 
 ---
 
