@@ -55,7 +55,7 @@ only opens the CLT install dialog. So the catalog code is bash + awk in
 
 - **Catalog edited by hand with tabs or trailing spaces.** Cells are trimmed,
   and a tab inside a cell must not shift columns. Owned by Task 1, test
-  "comments, blank lines and spacing are ignored".
+  "catalog rows are trimmed and tab-separated".
 - **`PACKAGES` spanning several lines in the config** (like `BOOTSTRAP_STEPS`
   can). Tokens are split on any whitespace, newlines included. Owned by
   Task 1, test "tokens may span lines".
