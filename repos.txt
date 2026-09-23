@@ -1,10 +1,9 @@
-# Sibling repos this bootstrap clones/pulls next to this repo (into its parent
-# folder, wherever that is) and then applies.
-# Format:  <dir-name>  <git-url>  [apply-command]
-# apply-command runs from the repo dir; omit to just clone + print the README hint.
+# Sibling repos bootstrap.sh clones/pulls next to this repo (into its parent
+# folder, wherever that is). Format:  <dir-name>  <git-url>
+# What runs from each one is a named step in lib/steps.sh (see --list).
+# dotfiles: DOTFILES_DIR / DOTFILES_URL in the config override this entry.
 
 swiss-windows-keyboard-layout-macos       git@github.com:JtheGunner/swiss-windows-keyboard-layout-macos.git
-karabiner-windows-keyboard-mapping-macos  git@github.com:JtheGunner/karabiner-windows-keyboard-mapping-macos.git  ./apply.sh
-# no apply-command: bootstrap.sh ports it via ide-keymaps/port-vscode.sh (with layers)
-# after the JetBrains keymap is in place
+karabiner-windows-keyboard-mapping-macos  git@github.com:JtheGunner/karabiner-windows-keyboard-mapping-macos.git
 intelli-key-port                          git@github.com:JtheGunner/intelli-key-port.git
+dotfiles                                  git@github.com:JtheGunner/dotfiles.git

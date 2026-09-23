@@ -175,4 +175,200 @@ f="$(write_config "DOTFILES_OMNISHELL_CONFIG=\"$TMP/omni.toml\"")"
 load_config "$f"; rc=$?
 assert_eq "$rc" 0
 
+# --- end to end: bootstrap.sh in a sandbox ----------------------------------
+# stub PATH LABEL [EXIT] -> executable that appends "LABEL <args>" to $LOG
+stub() {
+  mkdir -p "$(dirname "$1")"
+  printf '#!/bin/bash\necho "%s $*" >> "%s"\nexit %s\n' "$2" "$LOG" "${3:-0}" > "$1"
+  chmod +x "$1"
+}
+
+# stub_sibling NAME [SCRIPT [EXIT]] -> fake cloned sibling, optional stub script
+stub_sibling() {
+  mkdir -p "$SB/parent/$1/.git"
+  if [ -n "${2:-}" ]; then stub "$SB/parent/$1/$2" "$1/$2" "${3:-0}"; fi
+}
+
+# make_sandbox -> fresh sandbox; sets SB (root), APP (the repo copy), LOG
+make_sandbox() {
+  SB="$(mktemp -d "$TMP/sb.XXXXXX")"
+  APP="$SB/parent/macos-base-config"
+  LOG="$SB/calls.log"
+  mkdir -p "$APP" "$SB/home" "$SB/bin" "$SB/Karabiner-Elements.app"
+  : > "$LOG"
+  cp -R "$REPO/bootstrap.sh" "$REPO/lib" "$REPO/repos.txt" "$APP/"
+  stub "$APP/ide-keymaps/apply.sh" jetbrains-apply
+  stub "$APP/ide-keymaps/port-vscode.sh" port-vscode
+  local tool
+  for tool in git brew python3 omnishell; do stub "$SB/bin/$tool" "$tool"; done
+  stub_sibling swiss-windows-keyboard-layout-macos
+  stub_sibling karabiner-windows-keyboard-mapping-macos apply.sh
+  stub_sibling intelli-key-port
+  stub_sibling dotfiles bootstrap.sh
+}
+
+with_jetbrains() { mkdir -p "$SB/home/Library/Application Support/JetBrains/PhpStorm2026.1"; }
+
+# sandbox_config LINE... -> the default config file inside the fake HOME
+sandbox_config() {
+  mkdir -p "$SB/home/.config/macos-base-config"
+  printf '%s\n' "$@" > "$SB/home/.config/macos-base-config/config.sh"
+}
+
+# run_bootstrap ARG... -> OUT (stdout + stderr), RC. stdin is /dev/null.
+run_bootstrap() {
+  OUT="$(env -u XDG_CONFIG_HOME -u DOTFILES_TERMINALS HOME="$SB/home" \
+    PATH="$SB/bin:/usr/bin:/bin" KARABINER_APP="$SB/Karabiner-Elements.app" \
+    /bin/bash "$APP/bootstrap.sh" "$@" 2>&1 </dev/null)"
+  RC=$?
+}
+
+# headers -> the "== <step>" headers of $OUT on one line
+headers() { printf '%s\n' "$OUT" | grep -o '^== [a-z]*' | tr '\n' ' '; }
+
+it "--list and --help exit 0"
+make_sandbox
+run_bootstrap --list
+assert_eq "$RC" 0
+assert_contains "$OUT" "dotfiles"
+run_bootstrap --help
+assert_eq "$RC" 0
+assert_contains "$OUT" "--skip"
+
+it "unknown step aborts before any step runs"
+make_sandbox
+run_bootstrap macos bogus
+assert_eq "$RC" 2
+assert_contains "$OUT" "unknown step: bogus"
+assert_eq "$(headers)" ""
+assert_eq "$(cat "$LOG")" ""
+
+it "unknown option is exit 2"
+make_sandbox
+run_bootstrap --bogus
+assert_eq "$RC" 2
+
+it "steps run in table order with a summary"
+make_sandbox
+run_bootstrap --no-pull manual macos
+assert_eq "$RC" 0
+assert_eq "$(headers)" "== macos == manual == summary "
+assert_contains "$OUT" "  macos      ok"
+assert_contains "$OUT" "  manual     ok"
+assert_contains "$(cat "$LOG")" "python3 macos-defaults.py"
+
+it "dry run hands --dry-run to every sub-tool and runs no git"
+make_sandbox
+with_jetbrains
+run_bootstrap --dry-run --skip dotfiles
+assert_eq "$RC" 0
+log="$(cat "$LOG")"
+assert_contains "$log" "karabiner-windows-keyboard-mapping-macos/apply.sh --dry-run"
+assert_contains "$log" "python3 macos-defaults.py --dry-run"
+assert_contains "$log" "jetbrains-apply --dry-run"
+assert_contains "$log" "port-vscode --dry-run"
+assert_not_contains "$log" "git "
+while IFS= read -r line; do assert_contains "$line" "--dry-run"; done < "$LOG"
+assert_contains "$OUT" "+ git -C $SB/parent/intelli-key-port pull --ff-only"
+assert_contains "$OUT" "(dry run)"
+
+it "dry run announces a clone for a missing sibling"
+make_sandbox
+rm -rf "$SB/parent/intelli-key-port"
+run_bootstrap --dry-run repos
+assert_eq "$RC" 0
+assert_contains "$OUT" "+ git clone git@github.com:JtheGunner/intelli-key-port.git $SB/parent/intelli-key-port"
+assert_eq "$(cat "$LOG")" ""
+
+it "missing siblings are cloned; git reading stdin doesn't eat repos.txt"
+make_sandbox
+rm -rf "$SB/parent/intelli-key-port" "$SB/parent/dotfiles"
+printf '#!/bin/bash\ncat >/dev/null\necho "git $*" >> "%s"\n' "$LOG" > "$SB/bin/git"
+run_bootstrap --no-pull repos
+assert_eq "$RC" 0
+log="$(cat "$LOG")"
+assert_contains "$log" "git clone git@github.com:JtheGunner/intelli-key-port.git $SB/parent/intelli-key-port"
+assert_contains "$log" "git clone git@github.com:JtheGunner/dotfiles.git $SB/parent/dotfiles"
+
+it "--no-pull leaves existing siblings alone"
+make_sandbox
+run_bootstrap --no-pull repos
+assert_eq "$RC" 0
+assert_eq "$(cat "$LOG")" ""
+
+it "each sibling is pulled once per run"
+make_sandbox
+with_jetbrains
+run_bootstrap repos vscode
+assert_eq "$RC" 0
+assert_eq "$(grep -c 'intelli-key-port pull' "$LOG")" 1
+
+it "a failed pull only warns"
+make_sandbox
+stub "$SB/bin/git" git 1
+run_bootstrap repos
+assert_eq "$RC" 0
+assert_contains "$OUT" "warn: pull failed"
+assert_contains "$OUT" "  repos      ok"
+
+it "a failed clone fails the step"
+make_sandbox
+rm -rf "$SB/parent/intelli-key-port"
+stub "$SB/bin/git" git 128
+run_bootstrap repos
+assert_eq "$RC" 1
+assert_contains "$OUT" "  repos      failed"
+
+it "jetbrains and vscode skip without a JetBrains config"
+make_sandbox
+run_bootstrap --no-pull keymaps
+assert_eq "$RC" 0
+assert_contains "$OUT" "  jetbrains  skipped  (no JetBrains config yet"
+assert_contains "$OUT" "  vscode     skipped  (no JetBrains config yet"
+assert_eq "$(cat "$LOG")" ""
+
+it "keymaps run when a JetBrains config exists"
+make_sandbox
+with_jetbrains
+run_bootstrap --no-pull keymaps
+assert_eq "$RC" 0
+assert_contains "$(cat "$LOG")" "jetbrains-apply"
+assert_contains "$(cat "$LOG")" "port-vscode"
+
+it "karabiner skips when Karabiner-Elements is missing"
+make_sandbox
+rmdir "$SB/Karabiner-Elements.app"
+run_bootstrap --no-pull karabiner
+assert_eq "$RC" 0
+assert_contains "$OUT" "  karabiner  skipped  (Karabiner-Elements not installed"
+assert_eq "$(cat "$LOG")" ""
+
+it "a failing step is reported, later steps still run, exit 1"
+make_sandbox
+stub_sibling karabiner-windows-keyboard-mapping-macos apply.sh 3
+run_bootstrap --no-pull karabiner macos
+assert_eq "$RC" 1
+assert_contains "$OUT" "  karabiner  failed   (exit 3)"
+assert_contains "$OUT" "  macos      ok"
+
+it "config steps are the default; CLI steps replace them; skips add up"
+make_sandbox
+sandbox_config 'BOOTSTRAP_STEPS="macos manual"' 'BOOTSTRAP_SKIP="manual"'
+run_bootstrap --no-pull
+assert_eq "$(headers)" "== macos == summary "
+run_bootstrap --no-pull repos manual
+assert_eq "$(headers)" "== repos == summary "
+run_bootstrap --no-pull --skip macos
+assert_eq "$RC" 0
+assert_contains "$OUT" "nothing to do"
+
+it "an invalid config aborts with exit 2"
+make_sandbox
+run_bootstrap --config "$SB/missing.sh"
+assert_eq "$RC" 2
+sandbox_config 'BOOTSTRAP_STEPS="bogus"'
+run_bootstrap
+assert_eq "$RC" 2
+assert_eq "$(cat "$LOG")" ""
+
 echo "all $COUNT cases passed"
