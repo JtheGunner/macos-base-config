@@ -3,8 +3,8 @@
 # 🍎 macOS base config
 
 **Windows / PC muscle memory on a Mac, with a Swiss‑German ISO keyboard.**
-One bootstrap for the keyboard layout, the Karabiner remaps, the IDE keymaps,
-the few macOS tweaks that go with them, and the shell dotfiles.
+One bootstrap for the apps, the keyboard layout, the Karabiner remaps, the IDE
+keymaps, the few macOS tweaks that go with them, and the shell dotfiles.
 
 <code>🇨🇭 layout</code> &nbsp;→&nbsp; <code>⌨️ Karabiner</code> &nbsp;→&nbsp; <code>🧠 JetBrains keymap</code> &nbsp;→&nbsp; <code>💻 VS Code family</code> &nbsp;→&nbsp; <code>🐚 dotfiles</code>
 
@@ -55,7 +55,8 @@ the summary at the end (exit code 1), it never aborts the rest.
  ./bootstrap.sh [step ...]
    │
    ├─ repos       clone / pull each sibling repo (repos.txt) into the parent folder
-   ├─ karabiner   Karabiner config → ~/.config/karabiner   (skipped until Karabiner is installed)
+   ├─ brew        Homebrew (installed if missing) + the Brewfile: Karabiner, AltTab, Sidebar, font
+   ├─ karabiner   Karabiner config → ~/.config/karabiner   (starts Karabiner once if needed)
    ├─ macos       macos-defaults.py: system hotkeys, Finder shortcut, font smoothing
    ├─ jetbrains   JetBrains keymap → IDE config, set active (skipped until PhpStorm has a config)
    ├─ vscode      same keymap → VS Code / Antigravity         (same condition)
@@ -65,10 +66,9 @@ the summary at the end (exit code 1), it never aborts the rest.
 ```
 
 > [!IMPORTANT]
-> On a fresh Mac the `karabiner` step is skipped until Karabiner-Elements is
-> installed. Run `../karabiner-windows-keyboard-mapping-macos/setup.sh` (it
-> installs Karabiner via Homebrew and walks you through its permissions), then
-> `./bootstrap.sh karabiner`. The `dotfiles` step needs Homebrew as well.
+> On a fresh Mac the `brew` step installs Homebrew first, which asks once for
+> your password. Karabiner then still needs its permissions (Driver Extension,
+> Input Monitoring, Accessibility), see [Manual steps](#-manual-steps).
 
 ---
 
@@ -80,6 +80,7 @@ step named, every step runs.
 |    | Step        | Runs                                                |
 |:--:|-------------|-----------------------------------------------------|
 | 📥 | `repos`     | clone missing / pull existing sibling repos         |
+| 🍺 | `brew`      | Homebrew installer if missing, `brew bundle`        |
 | ⌨️  | `karabiner` | `karabiner-windows-keyboard-mapping-macos/apply.sh` |
 | 🛠️ | `macos`     | `macos-defaults.py`                                 |
 | 🧠 | `jetbrains` | `ide-keymaps/apply.sh`                              |
@@ -115,6 +116,7 @@ cp config.example.sh ~/.config/macos-base-config/config.sh
 |-----------------------------|---------------------|------------------------------------------------------------------------------------------------------------------------|
 | `BOOTSTRAP_STEPS`           | all steps           | steps to run when none are named on the command line                                                                   |
 | `BOOTSTRAP_SKIP`            | —                   | steps never to run on this machine                                                                                     |
+| `BREW_BUNDLE_EXTRA`         | —                   | extra Brewfile for this machine's own apps, installed after the repo's `Brewfile`                                      |
 | `DOTFILES_DIR`              | `<parent>/dotfiles` | dotfiles checkout to use, e.g. an existing `~/Git/dotfiles`                                                            |
 | `DOTFILES_URL`              | URL in `repos.txt`  | clone URL, e.g. a fork                                                                                                 |
 | `DOTFILES_ASSUME_YES`       | `0`                 | `1` = repoint stow links from another checkout without asking                                                          |
@@ -208,7 +210,6 @@ scripted reliably.
 | 🖥️ | **PhpStorm terminal**              | Settings → Tools → Terminal → **"Use Option as Meta key" off**. Otherwise AltGr characters turn into escape sequences in the IDE console                                                  |
 | 🔇 | **Disable VoiceOver**              | System Settings → Accessibility → VoiceOver → off, so `Ctrl+F5` isn't taken by VoiceOver                                                                                                  |
 | 🛡️ | **Gatekeeper: apps from anywhere** | `sudo spctl --master-disable`, then System Settings → Privacy & Security → "Allow applications from: Anywhere"                                                                            |
-| 📦 | **Apps**                           | AltTab and uBar, see [Apps](#-apps-homebrew)                                                                                                                                              |
 
 ---
 
@@ -261,17 +262,32 @@ the machine changes.
 
 ## 📦 Apps (Homebrew)
 
+The `brew` step installs [Homebrew](https://brew.sh) if it is missing, then
+everything in the [`Brewfile`](Brewfile):
+
+|    | App                                                     | For                                  |
+|:--:|---------------------------------------------------------|--------------------------------------|
+| ⌨️  | [Karabiner-Elements](https://karabiner-elements.pqrs.org/) | Windows key behaviour (`karabiner` step) |
+| 🔀 | [AltTab](https://alt-tab.app/)                          | Windows-style `Alt+Tab` window switching |
+| 📌 | [Sidebar](https://sidebarapp.net/)                      | Windows-style taskbar, Dock replacement |
+| 🔤 | JetBrains Mono                                          | editor font, see [Fonts](#-fonts)    |
+
 ```sh
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-brew install --cask alt-tab      # Windows-style Alt+Tab window switching
-# uBar (Windows-style taskbar): https://ubarapp.com/
+./bootstrap.sh brew
 ```
+
+- Installed apps are never upgraded by the bootstrap (`--no-upgrade`); they
+  update themselves.
+- An app already in `/Applications` that Homebrew didn't install is left alone.
+- Apps only this machine needs go in your own Brewfile: set
+  `BREW_BUNDLE_EXTRA` in the [config](#%EF%B8%8F-configuration).
 
 ---
 
 ## 🔤 Fonts
 
-VS Code / editor font. Paste into *Preferences: Open User Settings (JSON)*:
+The `brew` step installs JetBrains Mono. To use it in VS Code / Antigravity,
+paste into *Preferences: Open User Settings (JSON)*:
 
 ```json
 {
