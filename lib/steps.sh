@@ -134,16 +134,39 @@ brew_bundle() {
   run_cmd brew bundle --file="$1" --no-upgrade
 }
 
+# bundle_brewfile FILE -> show what FILE installs, then brew bundle it
+bundle_brewfile() {
+  sed 's/^/    /' "$1"
+  brew_bundle "$1"
+}
+
 step_brew() {
+  local tmp_root="${TMPDIR:-/tmp}" dir failed=""
   if ! find_brew && ! install_homebrew; then
     STEP_FAIL_REASON="Homebrew install failed"
     return 1
   fi
-  if ! brew_bundle "$HERE/Brewfile" ||
-    { [ -n "$BREW_BUNDLE_EXTRA" ] && ! brew_bundle "$BREW_BUNDLE_EXTRA"; }; then
-    STEP_FAIL_REASON="brew bundle"
+  dir="$(mktemp -d "${tmp_root%/}/macos-base-config.XXXXXX")" || return 1
+  if ! write_brewfiles "$dir" "$SELECTED_PACKAGES"; then
+    rm -rf "$dir"
     return 1
   fi
+  if [ ! -f "$dir/Brewfile" ] && [ ! -f "$dir/Brewfile.mas" ] && [ -z "$BREW_BUNDLE_EXTRA" ]; then
+    echo "  no brew packages to install"
+  fi
+  if [ -f "$dir/Brewfile" ] && ! bundle_brewfile "$dir/Brewfile"; then
+    failed="brew bundle"
+  fi
+  if [ -f "$dir/Brewfile.mas" ] && ! bundle_brewfile "$dir/Brewfile.mas"; then
+    failed="${failed:+$failed; }App Store: sign in, then re-run"
+  fi
+  if [ -n "$BREW_BUNDLE_EXTRA" ] && ! brew_bundle "$BREW_BUNDLE_EXTRA"; then
+    case "$failed" in *"brew bundle"*) ;; *) failed="${failed:+$failed; }brew bundle" ;; esac
+  fi
+  rm -rf "$dir"
+  [ -z "$failed" ] && return 0
+  STEP_FAIL_REASON="$failed"
+  return 1
 }
 
 # wait_for_karabiner_config -> start Karabiner-Elements once so it creates
@@ -165,7 +188,7 @@ step_karabiner() {
   local name=karabiner-windows-keyboard-mapping-macos
   local dir="$PARENT_DIR/$name"
   if [ ! -d "$KARABINER_APP" ]; then
-    skip "Karabiner-Elements not installed - run ./bootstrap.sh brew"
+    skip "Karabiner-Elements not installed - add karabiner-elements to PACKAGES, then run ./bootstrap.sh brew"
     return 0
   fi
   if ! wait_for_karabiner_config; then

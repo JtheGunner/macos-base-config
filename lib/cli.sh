@@ -8,7 +8,7 @@ ALL_STEPS="repos brew karabiner keyboard macos jetbrains vscode editor apps dotf
 step_description() {
   case "$1" in
     repos)     echo "clone missing / pull existing sibling repos (repos.txt)" ;;
-    brew)      echo "install Homebrew if missing, then the apps and fonts in the Brewfile" ;;
+    brew)      echo "install Homebrew if missing, then the selected brew / App Store packages (PACKAGES)" ;;
     karabiner) echo "apply the Karabiner config (needs Karabiner-Elements)" ;;
     keyboard)  echo "install and enable the Custom Swiss German keyboard layout" ;;
     macos)     echo "macOS defaults: system hotkeys, Finder shortcut, font smoothing, Gatekeeper" ;;
@@ -68,7 +68,7 @@ select_steps() {
   echo "${selected# }"
 }
 
-# parse_args ARG... -> sets ACTION (run|list|help), CLI_STEPS, CLI_SKIP,
+# parse_args ARG... -> sets ACTION (run|list|list-packages|help), CLI_STEPS, CLI_SKIP,
 # DRY_RUN, NO_PULL (true|false), CONFIG_PATH. Return 2 on a usage error.
 # Step names are validated later by select_steps.
 parse_args() {
@@ -84,6 +84,7 @@ parse_args() {
         CONFIG_PATH="$2"; shift ;;
       --dry-run) DRY_RUN=true ;;
       --no-pull) NO_PULL=true ;;
+      --list-packages) ACTION=list-packages ;;
       --list) ACTION=list ;;
       -h | --help) ACTION=help ;;
       -*) usage_error "unknown option: $1"; return 2 ;;
@@ -119,6 +120,7 @@ options:
   --no-pull         don't update sibling repos that are already cloned
   --config <path>   config file (default: ~/.config/macos-base-config/config.sh)
   --list            list the steps
+  --list-packages   list the package catalog, the selection and what is installed
   -h, --help        this help
 EOF
 }

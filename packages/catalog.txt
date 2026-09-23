@@ -1,0 +1,19 @@
+# Package catalog - what ./bootstrap.sh can install. Pick with PACKAGES in the
+# config (config.example.sh); ./bootstrap.sh --list-packages shows it all.
+#
+#   id | source | ref | check | category | description
+#
+# id           unique, lowercase; what PACKAGES names
+# source       formula, cask, mas (App Store), script, npm, pipx, uv, go,
+#              applet, manual
+# ref          formula / cask name (user/tap/name adds the tap), App Store id,
+#              installer URL, package or module name
+# check        app name for cask / mas / applet / manual (/Applications/<check>.app),
+#              command name for the others; - = the source checks itself
+# category     one word; PACKAGES can pick @category. Keep entries grouped.
+# description  the rest of the line
+
+karabiner-elements  | cask | karabiner-elements     | Karabiner-Elements | base | Windows key behaviour (karabiner step)
+alt-tab             | cask | alt-tab                | AltTab             | base | Windows-style Alt+Tab window switching
+sidebar             | cask | otuerk/sidebar/sidebar | Sidebar            | base | Windows-style taskbar, Dock replacement
+font-jetbrains-mono | cask | font-jetbrains-mono    | -                  | base | JetBrains Mono, the editor font (editor step)

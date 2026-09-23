@@ -6,6 +6,7 @@
 #   ./bootstrap.sh keymaps dotfiles  run only these steps
 #   ./bootstrap.sh --skip dotfiles   run every step but these
 #   ./bootstrap.sh --dry-run         show what would happen
+#   ./bootstrap.sh --list-packages   what PACKAGES can pick, and what is picked
 #   ./bootstrap.sh --help            all options; --list for the steps
 #
 # Per-machine settings: ~/.config/macos-base-config/config.sh (see
@@ -18,6 +19,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 PARENT_DIR="$(cd "$HERE/.." && pwd)"
 
 . "$HERE/lib/cli.sh"
+. "$HERE/lib/packages.sh"
 . "$HERE/lib/config.sh"
 . "$HERE/lib/steps.sh"
 
@@ -27,6 +29,10 @@ case "$ACTION" in
   list) print_step_list; exit 0 ;;
 esac
 load_config "$CONFIG_PATH" || exit 2
+if [ "$ACTION" = list-packages ]; then
+  print_package_list "$SELECTED_PACKAGES" || exit 2
+  exit 0
+fi
 
 # command-line steps replace the configured default; --skip adds to the config's
 SELECTED="$(select_steps "${CLI_STEPS:-$BOOTSTRAP_STEPS}" "$BOOTSTRAP_SKIP $CLI_SKIP")" || exit 2

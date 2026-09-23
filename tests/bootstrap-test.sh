@@ -80,6 +80,9 @@ parse_args --list; assert_eq "$ACTION" list
 parse_args -h; assert_eq "$ACTION" help
 parse_args --help; assert_eq "$ACTION" help
 
+it "--list-packages sets its action"
+parse_args --list-packages; assert_eq "$ACTION" list-packages
+
 it "unknown option is exit 2 with a message"
 out="$(parse_args --bogus 2>&1)"; rc=$?
 assert_eq "$rc" 2
@@ -99,9 +102,13 @@ done
 
 it "usage lists the options"
 out="$(usage)"
-for o in --skip --dry-run --no-pull --config --list --help; do
+for o in --skip --dry-run --no-pull --config --list --list-packages --help; do
   assert_contains "$out" "$o"
 done
+
+# --- lib/packages.sh (sourced before lib/config.sh, which uses it) ----------
+HERE="$REPO"
+. "$REPO/lib/packages.sh"
 
 # --- lib/config.sh ----------------------------------------------------------
 . "$REPO/lib/config.sh"
@@ -150,6 +157,120 @@ it "expand_home leaves other paths alone"
 assert_eq "$(HOME=/h expand_home "~")" "/h"
 assert_eq "$(HOME=/h expand_home "/a/~b")" "/a/~b"
 assert_eq "$(HOME=/h expand_home "")" ""
+
+# --- lib/packages.sh --------------------------------------------------------
+# write_catalog LINE... -> $TMP/catalog.txt, prints its path
+write_catalog() { printf '%s\n' "$@" > "$TMP/catalog.txt"; echo "$TMP/catalog.txt"; }
+
+TEST_CATALOG_LINES=(
+  '# id | source | ref | check | category | description'
+  'gh        | formula | gh              | -        | cli    | GitHub CLI'
+  'tool      | formula | user/tap/tool   | -        | cli    | a tapped formula'
+  'firefox   | cask    | firefox         | Firefox  | web    | Web browser'
+  'app       | cask    | user/tap/app    | Some App | web    | a tapped cask'
+  'whatsapp  | mas     | 310633997       | WhatsApp | chat   | Messenger (App Store)'
+  'claude    | script  | https://x/i.sh  | claude   | chat   | not a brew package'
+)
+
+it "the shipped catalog parses and @base is today's Brewfile"
+catalog_rows >/dev/null; rc=$?
+assert_eq "$rc" 0
+assert_eq "$(select_packages "@base")" "karabiner-elements alt-tab sidebar font-jetbrains-mono"
+
+it "catalog rows are trimmed and tab-separated; a | in the description is kept"
+f="$(write_catalog '' '# comment' "  gh |formula|	gh |  -  | cli | GitHub CLI | the official one  ")"
+assert_eq "$(PACKAGE_CATALOG="$f" catalog_rows)" "$(printf 'gh\tformula\tgh\t-\tcli\tGitHub CLI | the official one')"
+
+it "catalog problems are reported with their line number"
+f="$(write_catalog \
+  'ok    | formula | ok  | -   | cli | fine' \
+  'short | formula | x   | -   | cli' \
+  'bad   | rpm     | x   | -   | cli | unknown source' \
+  'ok    | formula | ok  | -   | cli | again' \
+  'empty | formula |     | -   | cli | no ref' \
+  'm     | mas     | abc | App | cli | not a number' \
+  'Upper | formula | x   | -   | cli | bad id' \
+  'x2    | formula | x   | -   | all | reserved category')"
+out="$(PACKAGE_CATALOG="$f" catalog_rows 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "$f:2: expected 6 columns"
+assert_contains "$out" "$f:3: unknown source: rpm"
+assert_contains "$out" "$f:4: duplicate id: ok (first on line 1)"
+assert_contains "$out" "$f:5: empty column"
+assert_contains "$out" "$f:6: mas needs a numeric App Store id and the app name"
+assert_contains "$out" "$f:7: invalid id: Upper"
+assert_contains "$out" "$f:8: category @all is reserved"
+
+it "a tab inside a catalog cell is rejected, not read as a column break"
+f="$(write_catalog "$(printf 'chrome | cask | google-chrome | Google\tChrome | web | Web browser')")"
+out="$(PACKAGE_CATALOG="$f" catalog_rows 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "$f:1: tab inside a column"
+
+it "a missing catalog is exit 2"
+out="$(PACKAGE_CATALOG="$TMP/nope.txt" catalog_rows 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "package catalog not found: $TMP/nope.txt"
+
+it "selection: ids, categories, @all, removals, catalog order"
+f="$(write_catalog "${TEST_CATALOG_LINES[@]}")"
+assert_eq "$(PACKAGE_CATALOG="$f" select_packages "firefox gh")" "gh firefox"
+assert_eq "$(PACKAGE_CATALOG="$f" select_packages "@cli whatsapp")" "gh tool whatsapp"
+assert_eq "$(PACKAGE_CATALOG="$f" select_packages "@all -@web -claude")" "gh tool whatsapp"
+assert_eq "$(PACKAGE_CATALOG="$f" select_packages "-gh @cli")" "tool"
+assert_eq "$(PACKAGE_CATALOG="$f" select_packages "gh gh @cli")" "gh tool"
+assert_eq "$(PACKAGE_CATALOG="$f" select_packages "")" ""
+
+it "tokens may span lines"
+assert_eq "$(PACKAGE_CATALOG="$f" select_packages "$(printf 'gh\n  firefox\t')")" "gh firefox"
+
+it "unknown tokens are exit 2 with a message; globs are not expanded"
+out="$(PACKAGE_CATALOG="$f" select_packages "gh bogus" 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "unknown package: bogus (see ./bootstrap.sh --list-packages)"
+out="$(PACKAGE_CATALOG="$f" select_packages "@nope" 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "unknown package category: @nope"
+out="$(PACKAGE_CATALOG="$f" select_packages "-" 2>&1)"; rc=$?
+assert_eq "$rc" 2
+out="$(cd "$REPO" && PACKAGE_CATALOG="$f" select_packages "*" 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "unknown package: *"
+
+it "package_state: apps by folder, commands on PATH, - means no check"
+mkdir -p "$TMP/apps/Some App.app"
+assert_eq "$(APPLICATIONS_DIR="$TMP/apps" package_state cask "Some App")" installed
+assert_eq "$(APPLICATIONS_DIR="$TMP/apps" package_state mas WhatsApp)" missing
+assert_eq "$(package_state pipx sh)" installed
+assert_eq "$(package_state npm no-such-command-xyz)" missing
+assert_eq "$(package_state formula -)" ""
+
+it "write_brewfiles: taps first, catalog order; App Store entries apart, with mas"
+f="$(write_catalog "${TEST_CATALOG_LINES[@]}")"
+d="$(mktemp -d "$TMP/bf.XXXXXX")"
+APPLICATIONS_DIR="$TMP/none" PACKAGE_CATALOG="$f" write_brewfiles "$d" "gh tool firefox app whatsapp claude" >/dev/null
+assert_eq "$(cat "$d/Brewfile")" 'tap "user/tap"
+brew "gh"
+brew "user/tap/tool"
+cask "firefox"
+cask "user/tap/app"'
+assert_eq "$(cat "$d/Brewfile.mas")" 'brew "mas"
+mas "WhatsApp", id: 310633997'
+
+it "apps already installed are left out; an empty Brewfile is not written"
+mkdir -p "$TMP/apps2/Some App.app" "$TMP/apps2/WhatsApp.app"
+d="$(mktemp -d "$TMP/bf.XXXXXX")"
+out="$(APPLICATIONS_DIR="$TMP/apps2" PACKAGE_CATALOG="$f" write_brewfiles "$d" "app whatsapp")"
+assert_contains "$out" "app: Some App.app already in $TMP/apps2 - left alone"
+assert_contains "$out" "whatsapp: WhatsApp.app already in $TMP/apps2 - left alone"
+[ -e "$d/Brewfile" ] && fail "wrote an empty Brewfile"
+[ -e "$d/Brewfile.mas" ] && fail "wrote an empty Brewfile.mas"
+
+it "write_brewfiles writes nothing for an empty selection, removes stale files"
+echo old > "$d/Brewfile"
+PACKAGE_CATALOG="$f" write_brewfiles "$d" "" >/dev/null
+[ -e "$d/Brewfile" ] && fail "stale Brewfile kept"
+true
 
 it "missing explicit config is exit 2"
 out="$(load_config "$TMP/missing.sh" 2>&1)"; rc=$?
@@ -213,6 +334,44 @@ f="$(write_config 'MACOS_DISABLE_GATEKEEPER=1')"
 load_config "$f"; rc=$?
 assert_eq "$rc" 0
 assert_eq "$MACOS_DISABLE_GATEKEEPER" 1
+
+it "PACKAGES defaults to @base, with no config file or without the key"
+XDG_CONFIG_HOME="$TMP/none" load_config ""; rc=$?
+assert_eq "$rc" 0
+assert_eq "$PACKAGES" "@base"
+assert_eq "$SELECTED_PACKAGES" "karabiner-elements alt-tab sidebar font-jetbrains-mono"
+f="$(write_config 'BOOTSTRAP_STEPS="brew"')"
+load_config "$f"
+assert_eq "$SELECTED_PACKAGES" "karabiner-elements alt-tab sidebar font-jetbrains-mono"
+
+it "PACKAGES=\"\" selects nothing; tokens resolve in catalog order"
+f="$(write_config 'PACKAGES=""')"
+load_config "$f"; rc=$?
+assert_eq "$rc" 0
+assert_eq "$SELECTED_PACKAGES" ""
+f="$(write_config 'PACKAGES="font-jetbrains-mono
+  alt-tab"')"
+load_config "$f"
+assert_eq "$SELECTED_PACKAGES" "alt-tab font-jetbrains-mono"
+f="$(write_config 'PACKAGES="@base -sidebar"')"
+load_config "$f"
+assert_eq "$SELECTED_PACKAGES" "karabiner-elements alt-tab font-jetbrains-mono"
+
+it "a later load resets PACKAGES, also one from the environment"
+f="$(write_config 'PACKAGES=""')"
+load_config "$f"
+# a plain assignment, not a prefix: bash restores prefix variables after a function
+PACKAGES="alt-tab"
+XDG_CONFIG_HOME="$TMP/none" load_config ""
+assert_eq "$PACKAGES" "@base"
+assert_eq "$SELECTED_PACKAGES" "karabiner-elements alt-tab sidebar font-jetbrains-mono"
+
+it "an unknown package in the config is exit 2"
+f="$(write_config 'PACKAGES="@base bogus"')"
+out="$(load_config "$f" 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "unknown package: bogus"
+assert_contains "$out" "in $f (PACKAGES)"
 
 it "DOTFILES_LOCAL_RC defaults to empty and loads several lines"
 XDG_CONFIG_HOME="$TMP/none" load_config ""
@@ -598,9 +757,9 @@ make_sandbox() {
   SB="$(mktemp -d "$TMP/sb.XXXXXX")"
   APP="$SB/parent/macos-base-config"
   LOG="$SB/calls.log"
-  mkdir -p "$APP" "$SB/home/.config/karabiner" "$SB/bin" "$SB/Karabiner-Elements.app"
+  mkdir -p "$APP" "$SB/home/.config/karabiner" "$SB/bin" "$SB/Karabiner-Elements.app" "$SB/Applications" "$SB/tmp"
   : > "$LOG"
-  cp -R "$REPO/bootstrap.sh" "$REPO/lib" "$REPO/repos.txt" "$REPO/Brewfile" "$APP/"
+  cp -R "$REPO/bootstrap.sh" "$REPO/lib" "$REPO/repos.txt" "$REPO/packages" "$APP/"
   stub "$APP/ide-keymaps/apply.sh" jetbrains-apply
   stub "$APP/ide-keymaps/port-vscode.sh" port-vscode
   mkdir -p "$APP/editor-settings" "$APP/apps"
@@ -626,10 +785,11 @@ sandbox_config() {
 
 # run_bootstrap ARG... -> OUT (stdout + stderr), RC. stdin is /dev/null.
 run_bootstrap() {
-  OUT="$(env -u XDG_CONFIG_HOME -u DOTFILES_TERMINALS HOME="$SB/home" \
+  OUT="$(env -u XDG_CONFIG_HOME -u DOTFILES_TERMINALS -u PACKAGES HOME="$SB/home" \
     PATH="$SB/bin:/usr/bin:/bin" KARABINER_APP="$SB/Karabiner-Elements.app" \
     BREW_CANDIDATES="$SB/homebrew/bin/brew" KARABINER_WAIT_SECONDS=0 \
     KEYBOARD_SYSTEM_DIR="$SB/system-layouts" SWIFT="${SWIFT_BIN:-$SB/bin/swift}" \
+    APPLICATIONS_DIR="$SB/Applications" TMPDIR="$SB/tmp/" PACKAGE_CATALOG="${SB_CATALOG:-}" \
     /bin/bash "$APP/bootstrap.sh" "$@" 2>&1 </dev/null)"
   RC=$?
 }
@@ -794,7 +954,8 @@ make_sandbox
 rmdir "$SB/Karabiner-Elements.app"
 run_bootstrap --no-pull karabiner
 assert_eq "$RC" 0
-assert_contains "$OUT" "  karabiner  skipped  (Karabiner-Elements not installed - run ./bootstrap.sh brew"
+assert_contains "$OUT" "Karabiner-Elements not installed - add karabiner-elements to PACKAGES, then run ./bootstrap.sh brew"
+assert_contains "$OUT" "  karabiner  skipped  (Karabiner-Elements not installed"
 assert_eq "$(cat "$LOG")" ""
 
 it "karabiner opens the app once when its config dir is missing"
@@ -975,12 +1136,82 @@ installer_stub() {
   chmod +x "$SB/bin/curl"
 }
 
-it "brew with Homebrew on PATH only runs brew bundle"
+# brew_stub [EXIT] [FAIL_ON] -> brew that logs its arguments and, for
+# --file=X, X's lines as "  | <line>"; exits EXIT, or 1 only when an argument
+# contains FAIL_ON
+brew_stub() {
+  cat > "$SB/bin/brew" <<EOF
+#!/bin/bash
+echo "brew \$*" >> "$LOG"
+for arg in "\$@"; do
+  case "\$arg" in --file=*) sed 's/^/  | /' "\${arg#--file=}" >> "$LOG" ;; esac
+done
+case "${2:-}" in ?*) case "\$*" in *"${2:-}"*) exit 1 ;; esac ;; esac
+exit ${1:-0}
+EOF
+  chmod +x "$SB/bin/brew"
+}
+
+# brew_log -> $LOG with the random temp dir replaced by <tmp>
+brew_log() { sed "s|$SB/tmp/macos-base-config\.[A-Za-z0-9]*|<tmp>|g" "$LOG"; }
+
+BASE_BREWFILE='  | tap "otuerk/sidebar"
+  | cask "karabiner-elements"
+  | cask "alt-tab"
+  | cask "otuerk/sidebar/sidebar"
+  | cask "font-jetbrains-mono"'
+
+it "brew bundles the generated Brewfile: @base without a config"
 make_sandbox
+brew_stub
 run_bootstrap --no-pull brew
 assert_eq "$RC" 0
-assert_eq "$(cat "$LOG")" "brew bundle --file=$APP/Brewfile --no-upgrade"
+assert_eq "$(brew_log)" "brew bundle --file=<tmp>/Brewfile --no-upgrade
+$BASE_BREWFILE"
+assert_contains "$OUT" '    cask "alt-tab"'
 assert_contains "$OUT" "  brew       ok"
+[ -z "$(ls -A "$SB/tmp")" ] || fail "temp Brewfile dir left behind"
+
+it "brew installs only the selected packages; PACKAGES=\"\" installs nothing"
+make_sandbox
+brew_stub
+sandbox_config 'PACKAGES="font-jetbrains-mono"'
+run_bootstrap --no-pull brew
+assert_eq "$(brew_log)" "brew bundle --file=<tmp>/Brewfile --no-upgrade
+  | cask \"font-jetbrains-mono\""
+: > "$LOG"
+sandbox_config 'PACKAGES=""'
+run_bootstrap --no-pull brew
+assert_eq "$RC" 0
+assert_eq "$(cat "$LOG")" ""
+assert_contains "$OUT" "no brew packages to install"
+
+it "the Brewfile leaves apps already in /Applications alone"
+make_sandbox
+brew_stub
+mkdir -p "$SB/Applications/AltTab.app"
+run_bootstrap --no-pull brew
+assert_not_contains "$(cat "$LOG")" "alt-tab"
+assert_contains "$(cat "$LOG")" 'cask "karabiner-elements"'
+assert_contains "$OUT" "alt-tab: AltTab.app already in $SB/Applications - left alone"
+
+it "App Store packages run in their own bundle; a failure asks to sign in"
+make_sandbox
+SB_CATALOG="$SB/catalog.txt"
+printf '%s\n' 'firefox | cask | firefox | Firefox | web | Web browser' \
+  'whatsapp | mas | 310633997 | WhatsApp | chat | Messenger' > "$SB_CATALOG"
+sandbox_config 'PACKAGES="@all"'
+brew_stub 0 Brewfile.mas
+run_bootstrap --no-pull brew macos
+SB_CATALOG=""
+assert_eq "$RC" 1
+assert_eq "$(brew_log | grep -v '^python3 ')" "brew bundle --file=<tmp>/Brewfile --no-upgrade
+  | cask \"firefox\"
+brew bundle --file=<tmp>/Brewfile.mas --no-upgrade
+  | brew \"mas\"
+  | mas \"WhatsApp\", id: 310633997"
+assert_contains "$OUT" "  brew       failed   (App Store: sign in, then re-run)"
+assert_contains "$OUT" "  macos      ok"
 
 it "brew installs Homebrew when missing, then bundles"
 make_sandbox
@@ -988,8 +1219,8 @@ rm "$SB/bin/brew"
 installer_stub
 run_bootstrap --no-pull brew
 assert_eq "$RC" 0
-assert_eq "$(cat "$LOG")" "curl -fsSL $INSTALLER_URL
-brew bundle --file=$APP/Brewfile --no-upgrade"
+assert_eq "$(brew_log)" "curl -fsSL $INSTALLER_URL
+brew bundle --file=<tmp>/Brewfile --no-upgrade"
 
 it "brew uses a Homebrew that is installed but not on PATH"
 make_sandbox
@@ -998,7 +1229,7 @@ stub "$SB/homebrew/bin/brew" brew
 run_bootstrap --no-pull brew dotfiles
 assert_eq "$RC" 0
 assert_not_contains "$(cat "$LOG")" "curl"
-assert_contains "$(cat "$LOG")" "brew bundle --file=$APP/Brewfile --no-upgrade"
+assert_contains "$(brew_log)" "brew bundle --file=<tmp>/Brewfile --no-upgrade"
 assert_contains "$OUT" "  dotfiles   ok"
 
 it "a failed Homebrew install fails the step, later steps still run"
@@ -1011,30 +1242,57 @@ assert_contains "$OUT" "  brew       failed   (Homebrew install failed)"
 assert_contains "$OUT" "  macos      ok"
 assert_not_contains "$(cat "$LOG")" "brew bundle"
 
-it "a failing brew bundle fails the step"
-make_sandbox
-stub "$SB/bin/brew" brew 1
-run_bootstrap --no-pull brew
-assert_eq "$RC" 1
-assert_contains "$OUT" "  brew       failed   (brew bundle)"
-
-it "BREW_BUNDLE_EXTRA runs a second bundle"
+it "a failing brew bundle fails the step, the extra Brewfile still runs"
 make_sandbox
 echo 'cask "firefox"' > "$SB/home/Brewfile.local"
 sandbox_config 'BREW_BUNDLE_EXTRA="~/Brewfile.local"'
+brew_stub 1
+run_bootstrap --no-pull brew
+assert_eq "$RC" 1
+assert_contains "$OUT" "  brew       failed   (brew bundle)"
+assert_contains "$(cat "$LOG")" "brew bundle --file=$SB/home/Brewfile.local --no-upgrade"
+
+it "BREW_BUNDLE_EXTRA runs after the catalog bundle, also with PACKAGES=\"\""
+make_sandbox
+brew_stub
+echo 'cask "firefox"' > "$SB/home/Brewfile.local"
+sandbox_config 'BREW_BUNDLE_EXTRA="~/Brewfile.local"' 'PACKAGES=""'
 run_bootstrap --no-pull brew
 assert_eq "$RC" 0
-assert_eq "$(cat "$LOG")" "brew bundle --file=$APP/Brewfile --no-upgrade
-brew bundle --file=$SB/home/Brewfile.local --no-upgrade"
+assert_eq "$(brew_log)" "brew bundle --file=$SB/home/Brewfile.local --no-upgrade
+  | cask \"firefox\""
+assert_not_contains "$OUT" "no brew packages to install"
 
-it "dry run announces the Homebrew install and the bundle, runs nothing"
+it "dry run shows the Homebrew install and the Brewfile, runs nothing"
 make_sandbox
 rm "$SB/bin/brew"
 run_bootstrap --dry-run --no-pull brew
 assert_eq "$RC" 0
 assert_contains "$OUT" "+ install Homebrew: /bin/bash -c \"\$(curl -fsSL $INSTALLER_URL)\""
-assert_contains "$OUT" "+ brew bundle --file=$APP/Brewfile --no-upgrade"
+assert_contains "$OUT" '    cask "font-jetbrains-mono"'
+assert_contains "$OUT" "+ brew bundle --file=$SB/tmp/macos-base-config."
 assert_eq "$(cat "$LOG")" ""
+
+it "--list-packages groups by category, marks the selection and what is installed"
+make_sandbox
+mkdir -p "$SB/Applications/AltTab.app"
+sandbox_config 'PACKAGES="alt-tab font-jetbrains-mono"'
+run_bootstrap --list-packages
+assert_eq "$RC" 0
+assert_contains "$OUT" "@base"
+assert_contains "$OUT" "[x] alt-tab                  installed Windows-style Alt+Tab window switching"
+assert_contains "$OUT" "[ ] sidebar                  missing   Windows-style taskbar, Dock replacement"
+assert_contains "$OUT" "[x] font-jetbrains-mono                JetBrains Mono, the editor font (editor step)"
+assert_not_contains "$OUT" "== summary"
+assert_eq "$(cat "$LOG")" ""
+
+it "--list-packages with an invalid PACKAGES is exit 2"
+make_sandbox
+sandbox_config 'PACKAGES="bogus"'
+run_bootstrap --list-packages
+assert_eq "$RC" 2
+assert_contains "$OUT" "unknown package: bogus"
+assert_not_contains "$OUT" "@base"
 
 # --- the dotfiles step ------------------------------------------------------
 # dotfiles_stub [EXIT] -> dotfiles/bootstrap.sh stub that also logs the
@@ -1244,9 +1502,15 @@ assert_eq "$BOOTSTRAP_STEPS|$BOOTSTRAP_SKIP|$DOTFILES_DIR|$DOTFILES_URL|$DOTFILE
 assert_eq "$DOTFILES_LOCAL_RC" ""
 assert_eq "$BREW_BUNDLE_EXTRA" ""
 assert_eq "$MACOS_DISABLE_GATEKEEPER" 0
-for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP BREW_BUNDLE_EXTRA MACOS_DISABLE_GATEKEEPER DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG DOTFILES_LOCAL_RC; do
+assert_eq "$PACKAGES" "@base"
+for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP PACKAGES BREW_BUNDLE_EXTRA MACOS_DISABLE_GATEKEEPER DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG DOTFILES_LOCAL_RC; do
   assert_contains "$(cat "$REPO/config.example.sh")" "$key="
 done
+
+it "the PACKAGES example in config.example.sh names real packages"
+example="$(sed -n '/^# --- packages/,/^PACKAGES=/p' "$REPO/config.example.sh" | tr '\n' ' ' | sed -n 's/.*e\.g\. "\([^"]*\)".*/\1/p')"
+[ -n "$example" ] || fail "no PACKAGES example found"
+select_packages "$example" >/dev/null || fail "example does not resolve: $example"
 
 it "the commented example in config.example.sh is a valid DOTFILES_LOCAL_RC"
 example="$(sed -n "/^#   DOTFILES_LOCAL_RC='/,/^#   '\$/s/^#   //p" "$REPO/config.example.sh")"

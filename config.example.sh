@@ -12,10 +12,19 @@ BOOTSTRAP_STEPS=""
 # Steps (or aliases) never to run on this machine, e.g. "karabiner".
 BOOTSTRAP_SKIP=""
 
+# --- packages (brew step) -----------------------------------------------------
+
+# What to install from the catalog, packages/catalog.txt (see
+# ./bootstrap.sh --list-packages): package ids, @category or @all; a leading
+# "-" removes one, e.g. "@base -sidebar". Nothing is required: ""
+# installs nothing. Without this key: "@base" = Karabiner-Elements, AltTab,
+# Sidebar, JetBrains Mono.
+PACKAGES="@base"
+
 # --- brew step ----------------------------------------------------------------
 
-# Extra Brewfile for apps only this machine needs, installed after the repo's
-# Brewfile, e.g. "~/.config/macos-base-config/Brewfile". Empty = none.
+# Extra Brewfile for apps outside the catalog, installed after the selected
+# packages, e.g. "~/.config/macos-base-config/Brewfile". Empty = none.
 BREW_BUNDLE_EXTRA=""
 
 # --- macos step ---------------------------------------------------------------
