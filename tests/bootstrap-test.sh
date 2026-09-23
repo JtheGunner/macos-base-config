@@ -598,13 +598,13 @@ assert_eq "$(cat "$d/settings.json")" '{
 assert_contains "$OUT" "Cursor: created"
 
 # --- apps/app_settings.py ---------------------------------------------------
-# app_sandbox -> AH (fake HOME), AD (a copy of apps/ without the tracked
-# settings), AB (stub bin: defaults keeps domains under $AH/defaults-store,
+# app_sandbox -> AH (fake HOME), AD (a copy of apps/), AS (settings dir, not created),
+# AB (stub bin: defaults keeps domains under $AH/defaults-store,
 # osascript and open only log), ALOG (their calls), AAPPS (fake /Applications)
 app_sandbox() {
   local root
   root="$(mktemp -d "$TMP/apps.XXXXXX")"
-  AH="$root/home"; AD="$root/apps"; AB="$root/bin"; ALOG="$root/calls.log"; AAPPS="$root/Applications"
+  AH="$root/home"; AD="$root/apps"; AS="$root/settings"; AB="$root/bin"; ALOG="$root/calls.log"; AAPPS="$root/Applications"
   mkdir -p "$AH" "$AD" "$AB" "$AAPPS/AltTab.app" "$AAPPS/Sidebar.app"
   : > "$ALOG"
   cp "$REPO/apps/app_settings.py" "$AD/"
@@ -622,7 +622,7 @@ EOF
   chmod +x "$AB"/*
 }
 run_app_settings() {
-  OUT="$(HOME="$AH" PATH="$AB:$PATH" APPLICATIONS_DIR="$AAPPS" python3 "$AD/app_settings.py" "$@" 2>&1)"
+  OUT="$(HOME="$AH" PATH="$AB:$PATH" APPLICATIONS_DIR="$AAPPS" python3 "$AD/app_settings.py" "$@" --dir "$AS" 2>&1)"
   RC=$?
 }
 # py EXPR... -> run python3 with plistlib, json, sys imported
@@ -666,17 +666,33 @@ write_alttab "$(alttab_domain)" appearanceTheme=2 hideStatusIcons=true \
 write_sidebar_backup "$(sidebar_support)/2.2.5_20260923-080000_AAAAAAAA.sidebarbackup"
 run_app_settings export
 assert_eq "$RC" 0
-assert_eq "$(py 'print(sorted(plistlib.load(open(sys.argv[1], "rb"))))' "$AD/alttab.plist")" "['appearanceTheme', 'hideStatusIcons']"
-assert_contains "$(cat "$AD/alttab.plist")" "<?xml"
+assert_eq "$(py 'print(sorted(plistlib.load(open(sys.argv[1], "rb"))))' "$AS/alttab.plist")" "['appearanceTheme', 'hideStatusIcons']"
+assert_contains "$(cat "$AS/alttab.plist")" "<?xml"
 
 it "apps export strips the Sidebar license, usage and personal data"
-b="$AD/sidebar.sidebarbackup"
+b="$AS/sidebar.sidebarbackup"
 assert_eq "$(py 'b = plistlib.load(open(sys.argv[1], "rb")); print("encryptedLicenseInfo" in b, b["mergesWithExistingPreferences"])' "$b")" "False True"
 assert_eq "$(py 'm = plistlib.load(open(sys.argv[1], "rb"))["metadata"]; print(sorted(m), m["reason"])' "$b")" "['appVersion', 'configurationVersion', 'createdAt', 'edition', 'id', 'reason'] manual"
 assert_eq "$(py 'b = plistlib.load(open(sys.argv[1], "rb")); print(sorted(json.loads(b["portableSettingsData"])))' "$b")" "['autoHideDelay', 'useLiveApplicationPreviews']"
 assert_eq "$(py 'b = plistlib.load(open(sys.argv[1], "rb")); print(sorted(plistlib.loads(b["preferencesPlist"])))' "$b")" "['KeyboardShortcuts_toggleApplicationList', 'applicationConfigurations', 'sidebarStyle', 'unlockedWeatherConfiguration']"
 assert_not_contains "$(py 'print(open(sys.argv[1], "rb").read())' "$b")" "SECRET-KEY"
 assert_contains "$OUT" "2.2.5_20260923-080000_AAAAAAAA.sidebarbackup"
+leaks="$(py '
+def keys(value):
+    if isinstance(value, dict):
+        for k, v in value.items():
+            yield k
+            yield from keys(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from keys(v)
+alttab = plistlib.load(open(sys.argv[1], "rb"))
+sidebar = plistlib.load(open(sys.argv[2], "rb"))
+found = list(keys(alttab)) + list(keys(sidebar))
+found += list(keys(json.loads(sidebar["portableSettingsData"])))
+found += list(keys(plistlib.loads(sidebar["preferencesPlist"])))
+print([k for k in found if "licen" in k.lower()])' "$AS/alttab.plist" "$AS/sidebar.sidebarbackup")"
+assert_eq "$leaks" "[]"
 
 it "apps export leaves an unchanged Sidebar export alone"
 before="$(py 'print(open(sys.argv[1], "rb").read())' "$b")"
@@ -689,7 +705,7 @@ assert_contains "$OUT" "Sidebar: unchanged"
 
 it "apps apply merges AltTab settings, keeps other keys, restarts AltTab"
 app_sandbox
-write_alttab "$AD/alttab.plist" appearanceTheme=2 hideStatusIcons=true
+write_alttab "$AS/alttab.plist" appearanceTheme=2 hideStatusIcons=true
 write_alttab "$(alttab_domain)" appearanceTheme=0 SULastCheckTime=x
 run_app_settings apply
 assert_eq "$RC" 0
@@ -709,7 +725,7 @@ assert_not_contains "$(cat "$ALOG")" "import"
 
 it "apps apply dry run only lists the AltTab keys it would change"
 app_sandbox
-write_alttab "$AD/alttab.plist" appearanceTheme=2
+write_alttab "$AS/alttab.plist" appearanceTheme=2
 write_alttab "$(alttab_domain)" appearanceTheme=0
 run_app_settings apply --dry-run
 assert_eq "$RC" 0
@@ -719,13 +735,13 @@ assert_eq "$(py 'print(plistlib.load(open(sys.argv[1], "rb"))["appearanceTheme"]
 
 it "apps apply adds the Sidebar backup to its backup list once"
 app_sandbox
-write_sidebar_backup "$AD/sidebar.sidebarbackup"
+write_sidebar_backup "$AS/sidebar.sidebarbackup"
 run_app_settings apply
 assert_eq "$RC" 0
 placed="$(ls "$(sidebar_support)")"
 assert_contains "$placed" "2.2.5_"
 assert_contains "$placed" "_AAAAAAAA.sidebarbackup"
-cmp -s "$AD/sidebar.sidebarbackup" "$(sidebar_support)/$placed" || fail "placed copy differs"
+cmp -s "$AS/sidebar.sidebarbackup" "$(sidebar_support)/$placed" || fail "placed copy differs"
 assert_contains "$OUT" "Settings > Expert > Backups"
 run_app_settings apply
 assert_eq "$(ls "$(sidebar_support)" | wc -l | tr -d ' ')" 1
@@ -733,7 +749,7 @@ assert_contains "$OUT" "Sidebar: backup already in its list"
 
 it "apps apply dry run does not add the Sidebar backup"
 app_sandbox
-write_sidebar_backup "$AD/sidebar.sidebarbackup"
+write_sidebar_backup "$AS/sidebar.sidebarbackup"
 run_app_settings apply --dry-run
 assert_eq "$RC" 0
 assert_contains "$OUT" "Sidebar: would add"
@@ -742,13 +758,31 @@ assert_contains "$OUT" "Sidebar: would add"
 it "apps apply skips apps that are not installed"
 app_sandbox
 rmdir "$AAPPS/AltTab.app" "$AAPPS/Sidebar.app"
-write_alttab "$AD/alttab.plist" appearanceTheme=2
-write_sidebar_backup "$AD/sidebar.sidebarbackup"
+write_alttab "$AS/alttab.plist" appearanceTheme=2
+write_sidebar_backup "$AS/sidebar.sidebarbackup"
 run_app_settings apply
 assert_eq "$RC" 0
 assert_contains "$OUT" "AltTab: not installed"
 assert_contains "$OUT" "Sidebar: not installed"
 assert_eq "$(cat "$ALOG")" ""
+
+it "apps apply skips an installed app without a settings file"
+app_sandbox
+run_app_settings apply
+assert_eq "$RC" 0
+assert_contains "$OUT" "AltTab: no settings in $AS - skipped"
+assert_contains "$OUT" "Sidebar: no settings in $AS - skipped"
+assert_eq "$(cat "$ALOG")" ""
+
+it "apps export creates the settings dir; without --dir it uses the config dir"
+app_sandbox
+write_alttab "$(alttab_domain)" appearanceTheme=2
+run_app_settings export
+assert_eq "$RC" 0
+[ -f "$AS/alttab.plist" ] || fail "no alttab.plist in the new settings dir"
+OUT="$(env -u XDG_CONFIG_HOME HOME="$AH" PATH="$AB:$PATH" APPLICATIONS_DIR="$AAPPS" python3 "$AD/app_settings.py" export 2>&1)"
+assert_eq "$?" 0
+[ -f "$AH/.config/macos-base-config/alttab.plist" ] || fail "default dir not used: $OUT"
 
 it "the tracked app settings hold no license data"
 for f in "$REPO/apps/alttab.plist" "$REPO/apps/sidebar.sidebarbackup"; do
