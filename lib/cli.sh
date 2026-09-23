@@ -69,7 +69,7 @@ select_steps() {
   echo "${selected# }"
 }
 
-# parse_args ARG... -> sets ACTION (run|list|list-packages|help), CLI_STEPS, CLI_SKIP,
+# parse_args ARG... -> sets ACTION (run|list|list-packages|save-settings|help), CLI_STEPS, CLI_SKIP,
 # DRY_RUN, NO_PULL (true|false), CONFIG_PATH. Return 2 on a usage error.
 # Step names are validated later by select_steps.
 parse_args() {
@@ -86,6 +86,7 @@ parse_args() {
       --dry-run) DRY_RUN=true ;;
       --no-pull) NO_PULL=true ;;
       --list-packages) ACTION=list-packages ;;
+      --save-settings) ACTION=save-settings ;;
       --list) ACTION=list ;;
       -h | --help) ACTION=help ;;
       -*) usage_error "unknown option: $1"; return 2 ;;
@@ -122,6 +123,8 @@ options:
   --config <path>   config file (default: ~/.config/macos-base-config/config.sh)
   --list            list the steps
   --list-packages   list the package catalog, the selection and what is installed
+  --save-settings [app ...]
+                    export the app settings (apps/registry.txt) into SETTINGS_DIR
   -h, --help        this help
 EOF
 }

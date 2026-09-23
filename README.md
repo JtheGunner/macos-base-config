@@ -107,6 +107,7 @@ clones it itself, so `./bootstrap.sh dotfiles` works on its own.
 | `--config <path>` | use this config file                                                       |
 | `--list`          | list the steps                                                             |
 | `--list-packages` | list the package catalog: what is selected, what is installed             |
+| `--save-settings [app…]` | save the app settings into `SETTINGS_DIR`, see [App settings](#app-settings) |
 | `-h`, `--help`    | usage                                                                      |
 
 ---
@@ -411,9 +412,18 @@ To save the settings of this Mac (for Sidebar, first create a backup in
 Sidebar → Settings → Expert → Backups → *Create backup*):
 
 ```sh
-python3 apps/app_settings.py export                 # into the default settings dir
-python3 apps/app_settings.py export --dir <dir>     # or into your SETTINGS_DIR
+./bootstrap.sh --save-settings            # every installed app in the registry
+./bootstrap.sh --save-settings alt-tab    # only these apps (registry ids)
 ```
+
+- The files go to `SETTINGS_DIR`, readable only by you (`600`).
+- A **secret guard** checks every file before it is written: a key that looks
+  like a license, token, serial, password or secret stops that app's export
+  (the file is not written, the key is named, exit 1). Tabby's vault-encrypted
+  config passes.
+- When `SETTINGS_DIR` is in a git repo (your private config repo), the command
+  shows `git status` and `git diff --stat`. It never commits: review, then
+  commit and push yourself.
 
 > [!TIP]
 > Keep the config and settings in iCloud Drive to have them on a new Mac
