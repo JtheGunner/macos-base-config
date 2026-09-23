@@ -921,6 +921,47 @@ write_alttab "$(alttab_domain)" appearanceTheme=0
 run_app_settings apply
 assert_contains "$OUT" "AltTab: set appearanceTheme"
 
+it "file export copies the settings file"
+app_sandbox
+write_registry 'tabby | file | ~/Library/Application Support/tabby/config.yaml | Tabby'
+mkdir -p "$AAPPS/Tabby.app" "$AH/Library/Application Support/tabby"
+printf 'encrypted: true\nvault: abc\n' > "$AH/Library/Application Support/tabby/config.yaml"
+run_app_settings export
+assert_eq "$RC" 0
+assert_eq "$(cat "$AS/tabby.yaml")" "$(printf 'encrypted: true\nvault: abc')"
+assert_eq "$(stat -f %Lp "$AS/tabby.yaml")" 600
+
+it "file apply backs up the old file, copies, restarts a running app"
+app_sandbox
+write_registry 'tabby | file | ~/Library/Application Support/tabby/config.yaml | Tabby'
+mkdir -p "$AAPPS/Tabby.app" "$AH/Library/Application Support/tabby" "$AS"
+echo old > "$AH/Library/Application Support/tabby/config.yaml"
+echo new > "$AS/tabby.yaml"
+running_app Tabby
+run_app_settings apply
+assert_eq "$RC" 0
+assert_eq "$(cat "$AH/Library/Application Support/tabby/config.yaml")" new
+assert_eq "$(cat "$AH/Library/Application Support/tabby"/config.yaml.bak-*)" old
+assert_contains "$(cat "$ALOG")" 'osascript -e tell application "Tabby" to quit'
+assert_contains "$(cat "$ALOG")" "open -a Tabby"
+assert_contains "$OUT" "Tabby: set"
+: > "$ALOG"
+run_app_settings apply
+assert_contains "$OUT" "Tabby: already set"
+assert_eq "$(cat "$ALOG")" ""
+
+it "file apply creates the target folder; dry run changes nothing"
+app_sandbox
+write_registry 'tabby | file | ~/Library/Application Support/tabby/config.yaml | Tabby'
+mkdir -p "$AAPPS/Tabby.app" "$AS"
+echo new > "$AS/tabby.yaml"
+run_app_settings apply --dry-run
+assert_contains "$OUT" "Tabby: would replace"
+[ -e "$AH/Library/Application Support/tabby" ] && fail "written in dry run"
+run_app_settings apply
+assert_eq "$(cat "$AH/Library/Application Support/tabby/config.yaml")" new
+assert_not_contains "$(cat "$ALOG")" "open -a Tabby"
+
 it "apps apply adds the Sidebar backup to its backup list once"
 app_sandbox
 write_sidebar_backup "$AS/sidebar.sidebarbackup"

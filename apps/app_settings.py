@@ -217,9 +217,40 @@ def apply_defaults(entry: Entry, source: Path, dry_run: bool) -> None:
     print(f"  {entry.app}: set {', '.join(changed)}" + (" (restarted)" if was_running else ""))
 
 
+def export_file(entry: Entry, settings_dir: Path) -> None:
+    source = Path(os.path.expanduser(entry.where))
+    if not source.is_file():
+        print(f"  {entry.app}: no settings on this Mac - skipped")
+        return
+    target = settings_file(settings_dir, entry)
+    write_private(target, source.read_bytes())
+    print(f"  {entry.app}: {target}")
+
+
+def apply_file(entry: Entry, source: Path, dry_run: bool) -> None:
+    target = Path(os.path.expanduser(entry.where))
+    data = source.read_bytes()
+    if target.is_file() and target.read_bytes() == data:
+        print(f"  {entry.app}: already set")
+        return
+    if dry_run:
+        print(f"  {entry.app}: would replace {target}")
+        return
+    was_running = quit_app(entry.app)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        target.rename(target.with_name(f"{target.name}.bak-{time.strftime('%Y%m%d-%H%M%S')}"))
+    target.write_bytes(data)
+    if was_running:
+        reopen_app(entry.app)
+    print(f"  {entry.app}: set {target}" + (" (restarted)" if was_running else ""))
+
+
 def export_entry(entry: Entry, settings_dir: Path) -> None:
     if entry.kind == "defaults":
         export_defaults(entry, settings_dir)
+    elif entry.kind == "file":
+        export_file(entry, settings_dir)
     elif entry.kind == "sidebar":
         export_sidebar(entry, settings_dir)
 
@@ -234,6 +265,8 @@ def apply_entry(entry: Entry, settings_dir: Path, dry_run: bool) -> None:
         return
     if entry.kind == "defaults":
         apply_defaults(entry, source, dry_run)
+    elif entry.kind == "file":
+        apply_file(entry, source, dry_run)
     elif entry.kind == "sidebar":
         apply_sidebar(entry, source, dry_run)
 
