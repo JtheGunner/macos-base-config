@@ -14,7 +14,7 @@
 
 alt-tab   | defaults | com.lwouis.alt-tab-macos                               | AltTab
 maccy     | defaults | org.p0deje.Maccy                                       | Maccy
-# Shottr keeps its license in its prefs (kc-license, token): export drops them
+# Shottr keeps its license (kc-license, kc-vault, token) and device ids in its prefs: export drops them
 shottr    | defaults | cc.ffitch.shottr                                       | Shottr
 # Rectangle renames or removes a RectangleConfig.json once loaded: its prefs instead
 rectangle | defaults | com.knollsoft.Rectangle                                | Rectangle
