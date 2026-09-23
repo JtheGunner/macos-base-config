@@ -9,11 +9,13 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 JB="$HOME/Library/Application Support/JetBrains"
-NAME="jeffry-default-macos-win"
+# keymap name (as the IDE shows it) and the tracked copy in this repo
+NAME="jeffry-default-macos-win Proper Redo"
+FILE="jeffry-default-macos-win-proper-redo.xml"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 DRY=false; [[ "${1:-}" == "--dry-run" ]] && DRY=true
 
-[ -f "$HERE/$NAME.xml" ] || { echo "missing $HERE/$NAME.xml - run ./sync.sh once"; exit 1; }
+[ -f "$HERE/$FILE" ] || { echo "missing $HERE/$FILE - run ./sync.sh once"; exit 1; }
 
 found=0
 while IFS= read -r cfg; do
@@ -21,13 +23,13 @@ while IFS= read -r cfg; do
   km="$cfg/keymaps"; act="$cfg/options/mac/keymap.xml"
   echo "== ${cfg#$HOME/}"
   if $DRY; then
-    echo "  would copy   $NAME.xml -> $km/"
+    echo "  would copy   $FILE -> $km/$NAME.xml"
     echo "  would set    <active_keymap name=\"$NAME\"/> in options/mac/keymap.xml"
     continue
   fi
   mkdir -p "$km" "$(dirname "$act")"
   [ -f "$km/$NAME.xml" ] && cp -p "$km/$NAME.xml" "$km/$NAME.xml.bak-$STAMP"
-  cp "$HERE/$NAME.xml" "$km/$NAME.xml"
+  cp "$HERE/$FILE" "$km/$NAME.xml"
   echo "  copied  $km/$NAME.xml"
   [ -f "$act" ] && cp -p "$act" "$act.bak-$STAMP"
   cat > "$act" <<XML

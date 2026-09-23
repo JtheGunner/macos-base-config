@@ -7,7 +7,9 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 JB="$HOME/Library/Application Support/JetBrains"
-NAME="jeffry-default-macos-win"
+# keymap name (as the IDE shows it) and the tracked copy in this repo
+NAME="jeffry-default-macos-win Proper Redo"
+FILE="jeffry-default-macos-win-proper-redo.xml"
 
 src=""
 while IFS= read -r d; do
@@ -16,7 +18,7 @@ done < <(find "$JB" -maxdepth 1 -type d -name 'PhpStorm*' -o -maxdepth 1 -type d
 
 [ -n "$src" ] || { echo "no $NAME.xml under $JB/*/keymaps/ - open the IDE once so it syncs"; exit 1; }
 
-cp "$src" "$HERE/$NAME.xml"
+cp "$src" "$HERE/$FILE"
 printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)  from  ${src#$HOME/}" > "$HERE/DATE"
-echo "updated $HERE/$NAME.xml"
-git -C "$HERE" --no-pager diff --stat -- "$NAME.xml" DATE || true
+echo "updated $HERE/$FILE"
+git -C "$HERE" --no-pager diff --stat -- "$FILE" DATE || true

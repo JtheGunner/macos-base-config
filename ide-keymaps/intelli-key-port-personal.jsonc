@@ -2,7 +2,7 @@
 // Personal layer for intelli-key-port (JetBrains keymap -> VS Code family).
 // Stacked last, on top of the repo's `windows-keymap` and `karabiner-winkeys`
 // layers - see ./port-vscode.sh. Deliberate deviations from a faithful port
-// of `jeffry-default-macos-win`; comment each one.
+// of `jeffry-default-macos-win Proper Redo`; comment each one.
 // ============================================================================
 {
   "dropActions": [
