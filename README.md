@@ -3,10 +3,10 @@
 # 🍎 macOS base config
 
 **Windows / PC muscle memory on a Mac, with a Swiss‑German ISO keyboard.**
-One bootstrap for the keyboard layout, the Karabiner remaps, the IDE keymaps and
-the few macOS tweaks that go with them.
+One bootstrap for the keyboard layout, the Karabiner remaps, the IDE keymaps,
+the few macOS tweaks that go with them, and the shell dotfiles.
 
-<code>🇨🇭 layout</code> &nbsp;→&nbsp; <code>⌨️ Karabiner</code> &nbsp;→&nbsp; <code>🧠 JetBrains keymap</code> &nbsp;→&nbsp; <code>💻 VS Code family</code>
+<code>🇨🇭 layout</code> &nbsp;→&nbsp; <code>⌨️ Karabiner</code> &nbsp;→&nbsp; <code>🧠 JetBrains keymap</code> &nbsp;→&nbsp; <code>💻 VS Code family</code> &nbsp;→&nbsp; <code>🐚 dotfiles</code>
 
 ![macOS](https://img.shields.io/badge/macOS-only-0ea5e9?style=flat-square&logo=apple&logoColor=white)
 ![Bash · Python](https://img.shields.io/badge/bash%20·%20python%203-scripts-3776ab?style=flat-square&logo=python&logoColor=white)
@@ -26,7 +26,9 @@ cd ~/code                   # any folder works
 git clone git@github.com:JtheGunner/macos-base-config.git
 cd macos-base-config
 ./bootstrap.sh --dry-run    # see what would happen
-./bootstrap.sh
+./bootstrap.sh              # every step
+./bootstrap.sh keymaps      # only some steps
+./bootstrap.sh --skip dotfiles
 ```
 
 > [!NOTE]
@@ -39,35 +41,94 @@ cd macos-base-config
 > ├── macos-base-config/                          ← you clone this
 > ├── karabiner-windows-keyboard-mapping-macos/   ← bootstrap.sh clones the rest
 > ├── swiss-windows-keyboard-layout-macos/
-> └── intelli-key-port/
+> ├── intelli-key-port/
+> └── dotfiles/                                   ← or DOTFILES_DIR, see Configuration
 > ```
 >
 > A sibling that is already there is updated with `git pull --ff-only`
 > instead of cloned again.
 
-`bootstrap.sh` is best-effort and re-runnable: a missing piece prints a note,
-it never aborts the rest.
+`bootstrap.sh` is best-effort and re-runnable: a failing step is reported in
+the summary at the end (exit code 1), it never aborts the rest.
 
 ```text
- ./bootstrap.sh
+ ./bootstrap.sh [step ...]
    │
-   ├─ 1. repos.txt      clone / pull each sibling repo into the parent folder
-   │                    karabiner-windows-keyboard-mapping-macos  → ./apply.sh
-   │                    swiss-windows-keyboard-layout-macos       → manual (see below)
-   │                    intelli-key-port                          → clone only
-   ├─ 2. macos-defaults.py            system hotkeys, Finder shortcut, font smoothing
-   ├─ 3. ide-keymaps/apply.sh         JetBrains keymap → IDE config, set active
-   │     ide-keymaps/port-vscode.sh   same keymap → VS Code / Antigravity
-   │                                  (only if a PhpStorm / IntelliJ config exists)
-   └─ 4. print the manual steps
+   ├─ repos       clone / pull each sibling repo (repos.txt) into the parent folder
+   ├─ karabiner   Karabiner config → ~/.config/karabiner   (skipped until Karabiner is installed)
+   ├─ macos       macos-defaults.py: system hotkeys, Finder shortcut, font smoothing
+   ├─ jetbrains   JetBrains keymap → IDE config, set active (skipped until PhpStorm has a config)
+   ├─ vscode      same keymap → VS Code / Antigravity         (same condition)
+   ├─ dotfiles    the dotfiles repo's own bootstrap.sh: shell, prompt, git, tmux, Ghostty
+   ├─ manual      print the manual steps
+   └─ summary     ok / skipped / failed per step
 ```
 
 > [!IMPORTANT]
-> `bootstrap.sh` runs Karabiner's `apply.sh`, which expects Karabiner-Elements
-> to be installed. On a fresh Mac, run `./bootstrap.sh` once so the sibling
-> repos get cloned, then `../karabiner-windows-keyboard-mapping-macos/setup.sh`.
-> It installs Karabiner via Homebrew and walks you through its permissions.
-> Then run `./bootstrap.sh` again.
+> On a fresh Mac the `karabiner` step is skipped until Karabiner-Elements is
+> installed. Run `../karabiner-windows-keyboard-mapping-macos/setup.sh` (it
+> installs Karabiner via Homebrew and walks you through its permissions), then
+> `./bootstrap.sh karabiner`. The `dotfiles` step needs Homebrew as well.
+
+---
+
+## 🎛️ Steps and options
+
+Name steps to run only those; they always run in the order below. With no
+step named, every step runs.
+
+|    | Step        | Runs                                                        |
+|:--:|-------------|-------------------------------------------------------------|
+| 📥 | `repos`     | clone missing / pull existing sibling repos                 |
+| ⌨️ | `karabiner` | `karabiner-windows-keyboard-mapping-macos/apply.sh`         |
+| 🛠️ | `macos`     | `macos-defaults.py`                                         |
+| 🧠 | `jetbrains` | `ide-keymaps/apply.sh`                                      |
+| 💻 | `vscode`    | `ide-keymaps/port-vscode.sh`                                |
+| 🐚 | `dotfiles`  | `dotfiles/bootstrap.sh`                                     |
+| ✋ | `manual`    | print the manual steps                                      |
+
+`keymaps` is an alias for `jetbrains vscode`. A step that needs a sibling repo
+clones it itself, so `./bootstrap.sh dotfiles` works on its own.
+
+| Option            | Effect                                                          |
+|-------------------|-----------------------------------------------------------------|
+| `--skip <step>`   | skip a step or alias; repeatable                                |
+| `--dry-run`       | show what would happen; sub-tools get `--dry-run`, no git, no dotfiles run |
+| `--no-pull`       | don't update siblings that are already cloned                   |
+| `--config <path>` | use this config file                                            |
+| `--list`          | list the steps                                                  |
+| `-h`, `--help`    | usage                                                           |
+
+---
+
+## ⚙️ Configuration
+
+Per-machine settings live in `~/.config/macos-base-config/config.sh`, a plain
+bash file that is **not** part of the repo. Start from the template:
+
+```sh
+mkdir -p ~/.config/macos-base-config
+cp config.example.sh ~/.config/macos-base-config/config.sh
+```
+
+| Key                         | Default             | Effect                                                              |
+|-----------------------------|---------------------|---------------------------------------------------------------------|
+| `BOOTSTRAP_STEPS`           | all steps           | steps to run when none are named on the command line                |
+| `BOOTSTRAP_SKIP`            | —                   | steps never to run on this machine                                  |
+| `DOTFILES_DIR`              | `<parent>/dotfiles` | dotfiles checkout to use, e.g. an existing `~/Git/dotfiles`         |
+| `DOTFILES_URL`              | URL in `repos.txt`  | clone URL, e.g. a fork                                              |
+| `DOTFILES_ASSUME_YES`       | `0`                 | `1` = repoint stow links from another checkout without asking       |
+| `DOTFILES_TERMINALS`        | —                   | extra terminal stow packages for the dotfiles bootstrap             |
+| `DOTFILES_OMNISHELL_CONFIG` | —                   | own omnishell `config.toml`, applied after the dotfiles bootstrap   |
+
+Steps named on the command line replace `BOOTSTRAP_STEPS`; `--skip` adds to
+`BOOTSTRAP_SKIP`. An invalid config (syntax error, unknown step, bad value)
+stops the bootstrap before any step runs.
+
+> [!TIP]
+> Already have the dotfiles checked out somewhere else? Set `DOTFILES_DIR` to
+> that checkout. Otherwise the dotfiles bootstrap asks whether to repoint every
+> stow link to the new `<parent>/dotfiles` clone.
 
 ---
 
@@ -80,7 +141,7 @@ it never aborts the rest.
 | 🛠️ | **macOS-level shortcuts Karabiner can't do**                               | `macos-defaults.py` (this repo)                                                                                       | `python3 macos-defaults.py`: bootstrap runs it                         |
 | 🧠 | **JetBrains keymap** `jeffry-default-macos-win Proper Redo`                | `ide-keymaps/` (this repo): [README](ide-keymaps/README.md)                                                          | `ide-keymaps/apply.sh` (quit the IDE first): bootstrap runs it         |
 | 💻 | **VS Code / Antigravity keybindings**, generated from the JetBrains keymap | [`intelli-key-port`](https://github.com/JtheGunner/intelli-key-port) + layers from `ide-keymaps/`                    | `ide-keymaps/port-vscode.sh`: bootstrap runs it                        |
-| 🐚 | **Shell, prompt, git, tmux, Ghostty**                                      | [`dotfiles`](https://github.com/JtheGunner/dotfiles)                                                                  | its own `bootstrap.sh`, not part of this one                          |
+| 🐚 | **Shell, prompt, git, tmux, Ghostty**                                      | [`dotfiles`](https://github.com/JtheGunner/dotfiles)                                                                  | its own `bootstrap.sh`: the `dotfiles` step runs it                          |
 
 > [!WARNING]
 > Port the VS Code keybindings only through `ide-keymaps/port-vscode.sh`. It
@@ -134,7 +195,7 @@ python3 macos-defaults.py            # apply; log out / in for the hotkeys + fon
 
 ## ✋ Manual steps
 
-`bootstrap.sh` prints a reminder of these at the end. None of them can be
+The `manual` step prints a reminder of these. None of them can be
 scripted reliably.
 
 |    | Step                               | How                                                                                                                                              |
@@ -145,6 +206,18 @@ scripted reliably.
 | 🔇 | **Disable VoiceOver**              | System Settings → Accessibility → VoiceOver → off, so `Ctrl+F5` isn't taken by VoiceOver                                                          |
 | 🛡️ | **Gatekeeper: apps from anywhere** | `sudo spctl --master-disable`, then System Settings → Privacy & Security → "Allow applications from: Anywhere"                                   |
 | 📦 | **Apps**                           | AltTab and uBar, see [Apps](#-apps-homebrew)                                                                                                      |
+
+---
+
+## 🧪 Tests
+
+```sh
+/bin/bash tests/bootstrap-test.sh
+```
+
+Runs the argument parsing, config and step tests under macOS's bash 3.2. The
+end-to-end cases run in a throwaway sandbox with stub tools, so nothing on
+the machine changes.
 
 ---
 

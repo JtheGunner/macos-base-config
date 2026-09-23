@@ -453,4 +453,13 @@ run_bootstrap --dry-run repos
 assert_contains "$OUT" "+ git clone https://example.invalid/fork.git $SB/home/my dots"
 assert_not_contains "$OUT" "$SB/parent/dotfiles"
 
+# --- config.example.sh ------------------------------------------------------
+it "config.example.sh is a valid config with the defaults"
+load_config "$REPO/config.example.sh"; rc=$?
+assert_eq "$rc" 0
+assert_eq "$BOOTSTRAP_STEPS|$BOOTSTRAP_SKIP|$DOTFILES_DIR|$DOTFILES_URL|$DOTFILES_ASSUME_YES|$DOTFILES_TERMINALS|$DOTFILES_OMNISHELL_CONFIG" "||||0||"
+for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG; do
+  assert_contains "$(cat "$REPO/config.example.sh")" "$key="
+done
+
 echo "all $COUNT cases passed"
