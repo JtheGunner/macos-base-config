@@ -1606,6 +1606,70 @@ run_bootstrap --no-pull brew
 SB_CATALOG=""
 assert_contains "$(cat "$LOG")" '  | brew "pipx"'
 
+# nas_sandbox [CONFIG_LINE...] -> sandbox with nas-mount selected; osacompile
+# "builds" an app dir holding the source, osadecompile prints it back
+nas_sandbox() {
+  make_sandbox
+  sandbox_config 'PACKAGES="nas-mount"' "$@"
+  printf '#!/bin/bash\necho "osacompile $*" >> "%s"\nmkdir -p "$2" && cp "$3" "$2/source"\n' "$LOG" > "$SB/bin/osacompile"
+  printf '#!/bin/bash\ncat "$1/source"\n' > "$SB/bin/osadecompile"
+  chmod +x "$SB/bin/osacompile" "$SB/bin/osadecompile"
+}
+nas_app() { echo "$SB/Applications/nas-mount.app"; }
+
+it "extras builds nas-mount with one try per share"
+nas_sandbox 'NAS_MOUNT_SHARES="smb://nas/a smb://nas/b"'
+run_bootstrap --no-pull extras
+assert_eq "$RC" 0
+assert_contains "$(cat "$(nas_app)/source")" '{"smb://nas/a", "smb://nas/b"}'
+assert_contains "$OUT" "nas-mount: installed"
+assert_contains "$OUT" "  extras     ok"
+[ -z "$(ls -A "$SB/tmp")" ] || fail "temp build dir left behind"
+
+it "an unchanged nas-mount is left alone; a changed one replaced, the old one in the Trash"
+run_bootstrap --no-pull extras
+assert_contains "$OUT" "nas-mount: unchanged"
+[ -e "$SB/home/.Trash" ] && fail "trashed an unchanged app"
+sandbox_config 'PACKAGES="nas-mount"' 'NAS_MOUNT_SHARES="smb://nas/c"'
+run_bootstrap --no-pull extras
+assert_contains "$OUT" "nas-mount: updated (old one in the Trash)"
+assert_contains "$(cat "$(nas_app)/source")" '{"smb://nas/c"}'
+assert_contains "$(cat "$SB/home/.Trash"/nas-mount-*.app/source)" '"smb://nas/a"'
+
+it "a failing build fails nas-mount and keeps the installed app"
+nas_sandbox 'NAS_MOUNT_SHARES="smb://nas/new"'
+mkdir -p "$(nas_app)"; echo old > "$(nas_app)/source"
+printf '#!/bin/bash\necho "compile error" >&2\nexit 1\n' > "$SB/bin/osacompile"
+run_bootstrap --no-pull extras
+assert_eq "$RC" 1
+assert_contains "$OUT" "  extras     failed   (failed: nas-mount)"
+assert_contains "$OUT" "compile error"
+assert_eq "$(cat "$(nas_app)/source")" old
+
+it "nas-mount without shares is skipped with a hint"
+nas_sandbox
+run_bootstrap --no-pull extras
+assert_eq "$RC" 0
+assert_contains "$OUT" "nas-mount: skipped - set NAS_MOUNT_SHARES in the config"
+assert_contains "$OUT" "  extras     skipped  (set NAS_MOUNT_SHARES in the config for: nas-mount)"
+assert_not_contains "$(cat "$LOG")" "osacompile"
+[ -e "$(nas_app)" ] && fail "built without shares"
+extras_sandbox "sass"
+printf '%s\n' 'nas-mount | applet | packages/nas-mount.applescript | nas-mount | remote | NAS' >> "$SB_CATALOG"
+sandbox_config 'PACKAGES="sass nas-mount"'
+rm "$SB/bin/npm"
+run_bootstrap --no-pull extras
+SB_CATALOG=""
+assert_contains "$OUT" "  extras     skipped  (install Node first (e.g. nvm install --lts) for: sass; set NAS_MOUNT_SHARES in the config for: nas-mount)"
+
+it "dry run shows the nas-mount build, builds nothing"
+nas_sandbox 'NAS_MOUNT_SHARES="smb://nas/a"'
+run_bootstrap --dry-run --no-pull extras
+assert_eq "$RC" 0
+assert_contains "$OUT" "+ osacompile -o $(nas_app) (packages/nas-mount.applescript with NAS_MOUNT_SHARES)"
+assert_eq "$(cat "$LOG")" ""
+[ -e "$(nas_app)" ] && fail "built in dry run"
+
 # --- the dotfiles step ------------------------------------------------------
 # dotfiles_stub [EXIT] -> dotfiles/bootstrap.sh stub that also logs the
 # DOTFILES_TERMINALS it was given

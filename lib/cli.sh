@@ -9,7 +9,7 @@ step_description() {
   case "$1" in
     repos)     echo "clone missing / pull existing sibling repos (repos.txt)" ;;
     brew)      echo "install Homebrew if missing, then the selected brew / App Store packages (PACKAGES)" ;;
-    extras)    echo "install the selected packages that don't come from Homebrew (script, npm, pipx, uv, go)" ;;
+    extras)    echo "install the selected packages that don't come from Homebrew (script, npm, pipx, uv, go) and build the nas-mount app" ;;
     karabiner) echo "apply the Karabiner config (needs Karabiner-Elements)" ;;
     keyboard)  echo "install and enable the Custom Swiss German keyboard layout" ;;
     macos)     echo "macOS defaults: system hotkeys, Finder shortcut, font smoothing, Gatekeeper" ;;

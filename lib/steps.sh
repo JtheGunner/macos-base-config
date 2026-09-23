@@ -189,12 +189,50 @@ install_extra() {
   esac
 }
 
+# install_applet ID REF CHECK -> build CHECK.app from the template REF (a
+# path in this repo) and NAS_MOUNT_SHARES. The installed app is replaced only
+# when its script differs; the old one goes to the Trash. 0 ok, 1 failed,
+# 2 skipped (no shares).
+install_applet() {
+  local id="$1" template="$HERE/$2" target="$APPLICATIONS_DIR/$3.app"
+  local tmp_root="${TMPDIR:-/tmp}" build
+  if [ -z "$NAS_MOUNT_SHARES" ]; then
+    echo "  $id: skipped - set NAS_MOUNT_SHARES in the config"
+    return 2
+  fi
+  if $DRY_RUN; then
+    echo "+ osacompile -o $target ($2 with NAS_MOUNT_SHARES)"
+    return 0
+  fi
+  build="$(mktemp -d "${tmp_root%/}/applet.XXXXXX")" || return 1
+  if ! applet_source "$template" > "$build/$3.applescript" ||
+    ! osacompile -o "$build/$3.app" "$build/$3.applescript" 2> "$build/errors"; then
+    echo "  $id: build failed" >&2
+    cat "$build/errors" >&2
+    rm -rf "$build"
+    return 1
+  fi
+  if [ -d "$target" ] && [ "$(osadecompile "$target" 2>/dev/null)" = "$(osadecompile "$build/$3.app")" ]; then
+    echo "  $id: unchanged"
+  elif [ -d "$target" ]; then
+    mkdir -p "$HOME/.Trash" &&
+      mv "$target" "$HOME/.Trash/$3-$(date +%Y%m%d-%H%M%S).app" &&
+      mv "$build/$3.app" "$target" || { rm -rf "$build"; return 1; }
+    echo "  $id: updated (old one in the Trash)"
+  else
+    mv "$build/$3.app" "$target" || { rm -rf "$build"; return 1; }
+    echo "  $id: installed"
+  fi
+  rm -rf "$build"
+}
+
 # step_extras -> install the selected script / npm / pipx / uv / go packages
 # whose command is missing. The tools come from the brew step (npm: from
-# Node, which nvm installs). A failing package doesn't stop the others.
+# Node, which nvm installs). The nas-mount applet is (re)built from its
+# template. A failing package doesn't stop the others.
 step_extras() {
   local rows id source ref check _category _description tool
-  local selected=false failed="" need_node=""
+  local selected=false failed="" need_node="" need_shares="" rc
   rows="$(catalog_rows)" || { STEP_FAIL_REASON="package catalog"; return 1; }
   # Homebrew's pipx / uv / go, also when brew isn't on this shell's PATH yet
   find_brew >/dev/null 2>&1 || true
@@ -202,8 +240,18 @@ step_extras() {
   # rows on fd 3: an installer that reads stdin must not eat the rest
   while IFS=$'\t' read -r id source ref check _category _description <&3; do
     case " $SELECTED_PACKAGES " in *" $id "*) ;; *) continue ;; esac
-    case "$source" in script | npm | pipx | uv | go) ;; *) continue ;; esac
+    case "$source" in script | npm | pipx | uv | go | applet) ;; *) continue ;; esac
     selected=true
+    if [ "$source" = applet ]; then
+      rc=0
+      install_applet "$id" "$ref" "$check" || rc=$?
+      case "$rc" in
+        0) ;;
+        2) need_shares="$need_shares $id" ;;
+        *) failed="$failed $id" ;;
+      esac
+      continue
+    fi
     if [ "$(package_state "$source" "$check")" = installed ]; then
       echo "  $id: $check already installed"
       continue
@@ -234,7 +282,10 @@ step_extras() {
     STEP_FAIL_REASON="failed:$failed"
     return 1
   fi
-  [ -z "$need_node" ] || skip "install Node first (e.g. nvm install --lts) for:$need_node"
+  local reason=""
+  [ -z "$need_node" ] || reason="install Node first (e.g. nvm install --lts) for:$need_node"
+  [ -z "$need_shares" ] || reason="${reason:+$reason; }set NAS_MOUNT_SHARES in the config for:$need_shares"
+  [ -z "$reason" ] || skip "$reason"
   return 0
 }
 
