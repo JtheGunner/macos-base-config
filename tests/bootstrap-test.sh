@@ -265,6 +265,13 @@ assert_contains "$OUT" "  macos      ok"
 assert_contains "$OUT" "  manual     ok"
 assert_contains "$(cat "$LOG")" "python3 macos-defaults.py"
 
+it "manual step lists every manual hint"
+make_sandbox
+run_bootstrap manual
+assert_eq "$RC" 0
+assert_contains "$OUT" "Karabiner permissions"
+assert_contains "$OUT" "machine-local shell aliases (kdash-token)"
+
 it "dry run hands --dry-run to every sub-tool and runs no git"
 make_sandbox
 with_jetbrains

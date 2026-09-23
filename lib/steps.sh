@@ -174,4 +174,5 @@ step_manual() {
   echo "  - Swiss keyboard layout: swiss-windows-keyboard-layout-macos/README.md"
   echo "  - PhpStorm: Settings > Tools > Terminal > 'Use Option as Meta key' off (AltGr in the console)"
   echo "  - see README.md 'Manual steps' (VoiceOver off, Gatekeeper, AltTab, uBar)"
+  echo "  - machine-local shell aliases (kdash-token): README.md 'Machine-local shell aliases'"
 }
