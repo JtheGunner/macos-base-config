@@ -319,6 +319,30 @@ The `@base` packages:
 | 📌 | [Sidebar](https://sidebarapp.net/)                      | Windows-style taskbar, Dock replacement |
 | 🔤 | JetBrains Mono                                          | editor font, see [Fonts](#-fonts)    |
 
+The whole catalog at a glance. Homebrew wherever it has the package; the
+source column in `packages/catalog.txt` says where each one comes from.
+
+|    | Category        | Packages |
+|:--:|-----------------|----------|
+| 🧱 | `base`          | karabiner-elements, alt-tab, sidebar, font-jetbrains-mono |
+| 🌐 | `browser`       | firefox, google-chrome |
+| 💻 | `dev`           | visual-studio-code, antigravity, antigravity-ide, jetbrains-toolbox, tabby, docker-desktop, dbeaver-community, postman, wireshark-app, filezilla *(download link)* |
+| 🤖 | `ai`            | claude, claude-code, lm-studio, mlx-dspark |
+| 🧰 | `productivity`  | bitwarden, google-drive, rectangle, shottr, trex, maccy, mouseboost-pro *(App Store)*, pearcleaner, swiftdefaultappsprefpane |
+| 💬 | `communication` | telegram, whatsapp |
+| 🛰️ | `remote`        | tailscale-app, teamviewer, windows-app, nas-mount |
+| 🎵 | `media`         | spotify, vlc, steam |
+| 🐚 | `cli-shell`     | coreutils, htop, tldr, screenfetch, iproute2mac |
+| 🛠️ | `cli-dev`       | gh, git-filter-repo, go, gopls, nvm, pipx, uv, python@3.12, python@3.14, php@8.3, php@8.4, composer, qodana, sass |
+| 🗄️ | `cli-ops`       | mariadb, mysql-client, helm, sshpass |
+| 🧠 | `cli-ai`        | summarize, openai-whisper, hf, mlx-lm, gemini-cli, litellm, mlx-vlm, mlx-dspark-cli *(pipx)*, nano-pdf *(uv)*, continue-cli, openclaw, clawhub *(npm)* |
+| 📄 | `cli-docs`      | ghostscript, poppler, tesseract, tesseract-lang |
+| 🍎 | `cli-macos`     | codexbar, remindctl, memo, spogo, dutix |
+
+Shell tools (bat, eza, fd, fzf, ripgrep, starship, tmux, zoxide, …) are not in
+the catalog: the [`dotfiles`](https://github.com/JtheGunner/dotfiles) step
+installs them.
+
 - Installed apps are never upgraded by the bootstrap (`--no-upgrade`); they
   update themselves.
 - An app already in `/Applications` is left alone, even when Homebrew didn't

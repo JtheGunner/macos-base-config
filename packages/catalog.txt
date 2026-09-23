@@ -10,13 +10,104 @@
 #              installer URL, package or module name
 # check        app name for cask / mas / applet / manual (/Applications/<check>.app),
 #              bin:<command> for a cask that installs only a command,
-#              command name for the others; - = the source checks itself
+#              command name for the others (a formula whose command is
+#              already there, however installed, is left alone); - = the
+#              source checks itself
 # category     one word; PACKAGES can pick @category. Keep entries grouped.
 # description  the rest of the line
 
-karabiner-elements  | cask | karabiner-elements     | Karabiner-Elements | base | Windows key behaviour (karabiner step)
-alt-tab             | cask | alt-tab                | AltTab             | base | Windows-style Alt+Tab window switching
-sidebar             | cask | otuerk/sidebar/sidebar | Sidebar            | base | Windows-style taskbar, Dock replacement
-font-jetbrains-mono | cask | font-jetbrains-mono    | -                  | base | JetBrains Mono, the editor font (editor step)
+karabiner-elements        | cask    | karabiner-elements             | Karabiner-Elements  | base          | Windows key behaviour (karabiner step)
+alt-tab                   | cask    | alt-tab                        | AltTab              | base          | Windows-style Alt+Tab window switching
+sidebar                   | cask    | otuerk/sidebar/sidebar         | Sidebar             | base          | Windows-style taskbar, Dock replacement
+font-jetbrains-mono       | cask    | font-jetbrains-mono            | -                   | base          | JetBrains Mono, the editor font (editor step)
 
-nas-mount           | applet | packages/nas-mount.applescript | nas-mount | remote | Mount the NAS shares in NAS_MOUNT_SHARES (credentials from the Keychain)
+firefox                   | cask    | firefox                        | Firefox             | browser       | Firefox web browser
+google-chrome             | cask    | google-chrome                  | Google Chrome       | browser       | Google Chrome web browser
+
+visual-studio-code        | cask    | visual-studio-code             | Visual Studio Code  | dev           | Visual Studio Code editor
+antigravity               | cask    | antigravity                    | Antigravity         | dev           | Antigravity, Google's agent platform
+antigravity-ide           | cask    | antigravity-ide                | Antigravity IDE     | dev           | Antigravity IDE, AI coding agent IDE
+jetbrains-toolbox         | cask    | jetbrains-toolbox              | JetBrains Toolbox   | dev           | JetBrains Toolbox: installs and updates PhpStorm & co.
+tabby                     | cask    | tabby                          | Tabby               | dev           | Tabby terminal, SSH and serial client
+docker-desktop            | cask    | docker-desktop                 | Docker              | dev           | Docker Desktop: containers, docker CLI, Kubernetes
+dbeaver-community         | cask    | dbeaver-community              | DBeaver             | dev           | DBeaver database tool and SQL client
+postman                   | cask    | postman                        | Postman             | dev           | Postman API client
+wireshark-app             | cask    | wireshark-app                  | Wireshark           | dev           | Wireshark network protocol analyzer
+filezilla                 | manual  | https://filezilla-project.org/download.php?type=client | FileZilla | dev | FileZilla FTP / SFTP client (no Homebrew cask: download it)
+
+claude                    | cask    | claude                         | Claude              | ai            | Claude desktop app
+claude-code               | cask    | claude-code                    | bin:claude          | ai            | Claude Code, the terminal coding agent
+lm-studio                 | cask    | lm-studio                      | LM Studio           | ai            | LM Studio: download and run local LLMs
+mlx-dspark                | cask    | arahim3/mlx-dspark/mlx-dspark  | mlx-dspark          | ai            | mlx-dspark: speculative-decoding cockpit for local LLMs
+
+bitwarden                 | cask    | bitwarden                      | Bitwarden           | productivity  | Bitwarden password manager
+google-drive              | cask    | google-drive                   | Google Drive        | productivity  | Google Drive sync client
+rectangle                 | cask    | rectangle                      | Rectangle           | productivity  | Rectangle: window snapping with shortcuts
+shottr                    | cask    | shottr                         | Shottr              | productivity  | Shottr screenshots, measuring and annotations
+trex                      | cask    | trex                           | TRex                | productivity  | TRex: text from anything on screen (OCR)
+maccy                     | cask    | maccy                          | Maccy               | productivity  | Maccy clipboard manager
+mouseboost-pro            | mas     | 1555844307                     | MouseBoost Pro      | productivity  | MouseBoost Pro mouse tools (App Store, paid)
+pearcleaner               | cask    | pearcleaner                    | Pearcleaner         | productivity  | Pearcleaner: uninstall apps with their leftovers
+swiftdefaultappsprefpane  | cask    | swiftdefaultappsprefpane       | -                   | productivity  | SwiftDefaultApps: default apps per file type / URL scheme
+
+telegram                  | cask    | telegram                       | Telegram            | communication | Telegram messenger
+whatsapp                  | cask    | whatsapp                       | WhatsApp            | communication | WhatsApp messenger
+
+tailscale-app             | cask    | tailscale-app                  | Tailscale           | remote        | Tailscale mesh VPN
+teamviewer                | cask    | teamviewer                     | TeamViewer          | remote        | TeamViewer remote support
+windows-app               | cask    | windows-app                    | Windows App         | remote        | Windows App (Remote Desktop, Windows 365)
+nas-mount                 | applet  | packages/nas-mount.applescript | nas-mount           | remote        | Mount the NAS shares in NAS_MOUNT_SHARES (credentials from the Keychain)
+
+spotify                   | cask    | spotify                        | Spotify             | media         | Spotify music streaming
+vlc                       | cask    | vlc                            | VLC                 | media         | VLC media player
+steam                     | cask    | steam                          | Steam               | media         | Steam games
+
+coreutils                 | formula | coreutils                      | -                   | cli-shell     | GNU core utilities (g-prefixed: gls, gdate, ...)
+htop                      | formula | htop                           | -                   | cli-shell     | htop interactive process viewer
+tldr                      | formula | tldr                           | -                   | cli-shell     | tldr: short, example-based man pages
+screenfetch               | formula | screenfetch                    | -                   | cli-shell     | screenfetch: system info with ASCII art
+iproute2mac               | formula | iproute2mac                    | -                   | cli-shell     | ip command like on Linux
+
+gh                        | formula | gh                             | -                   | cli-dev       | GitHub CLI
+git-filter-repo           | formula | git-filter-repo                | -                   | cli-dev       | Rewrite git history
+go                        | formula | go                             | -                   | cli-dev       | Go toolchain
+gopls                     | formula | gopls                          | gopls               | cli-dev       | Go language server
+nvm                       | formula | nvm                            | -                   | cli-dev       | Node version manager (then: nvm install --lts)
+pipx                      | formula | pipx                           | -                   | cli-dev       | Python CLI apps in isolated environments
+uv                        | formula | uv                             | -                   | cli-dev       | uv: fast Python package and project manager
+python@3.12               | formula | python@3.12                    | -                   | cli-dev       | Python 3.12
+python@3.14               | formula | python@3.14                    | -                   | cli-dev       | Python 3.14
+php@8.3                   | formula | php@8.3                        | -                   | cli-dev       | PHP 8.3
+php@8.4                   | formula | php@8.4                        | -                   | cli-dev       | PHP 8.4
+composer                  | formula | composer                       | composer            | cli-dev       | Composer, the PHP dependency manager
+qodana                    | formula | jetbrains/utils/qodana         | -                   | cli-dev       | Qodana: JetBrains code quality checks
+sass                      | formula | dart-sass                      | sass                | cli-dev       | Sass compiler (dart-sass)
+
+mariadb                   | formula | mariadb                        | -                   | cli-ops       | MariaDB server and client
+mysql-client              | formula | mysql-client                   | -                   | cli-ops       | MySQL client
+helm                      | formula | helm                           | -                   | cli-ops       | Helm, the Kubernetes package manager
+sshpass                   | formula | sshpass                        | -                   | cli-ops       | Non-interactive SSH password login
+
+summarize                 | formula | summarize                      | -                   | cli-ai        | Summarize text, web pages and media with AI
+openai-whisper            | formula | openai-whisper                 | -                   | cli-ai        | OpenAI Whisper speech recognition
+hf                        | formula | hf                             | hf                  | cli-ai        | hf: Hugging Face hub CLI
+mlx-lm                    | formula | mlx-lm                         | mlx_lm.generate     | cli-ai        | mlx-lm: run LLMs with Apple MLX
+gemini-cli                | formula | gemini-cli                     | gemini              | cli-ai        | Gemini CLI
+litellm                   | pipx    | litellm                        | litellm             | cli-ai        | LiteLLM: one API and proxy for many LLM providers
+mlx-vlm                   | pipx    | mlx-vlm                        | mlx_vlm.generate    | cli-ai        | mlx-vlm: vision language models with Apple MLX
+mlx-dspark-cli            | pipx    | mlx-dspark                     | mlx-dspark          | cli-ai        | mlx-dspark command line
+nano-pdf                  | uv      | nano-pdf                       | nano-pdf            | cli-ai        | nano-pdf: edit PDFs with natural language
+continue-cli              | npm     | @continuedev/cli               | cn                  | cli-ai        | Continue CLI (cn)
+openclaw                  | npm     | openclaw                       | openclaw            | cli-ai        | OpenClaw agent gateway
+clawhub                   | npm     | clawhub                        | clawhub             | cli-ai        | ClawHub skill registry CLI
+
+ghostscript               | formula | ghostscript                    | -                   | cli-docs      | Ghostscript PostScript / PDF interpreter
+poppler                   | formula | poppler                        | -                   | cli-docs      | Poppler PDF tools (pdftotext, pdfinfo, ...)
+tesseract                 | formula | tesseract                      | -                   | cli-docs      | Tesseract OCR engine
+tesseract-lang            | formula | tesseract-lang                 | -                   | cli-docs      | Tesseract language packs
+
+codexbar                  | formula | steipete/tap/codexbar          | -                   | cli-macos     | CodexBar: AI usage and status in the menu bar
+remindctl                 | formula | steipete/tap/remindctl         | -                   | cli-macos     | Apple Reminders from the command line
+memo                      | formula | antoniorodr/memo/memo          | -                   | cli-macos     | Apple Notes and Reminders from the command line
+spogo                     | formula | steipete/tap/spogo             | -                   | cli-macos     | Spotify from the command line
+dutix                     | formula | jackchuka/tap/dutix            | -                   | cli-macos     | Default apps and file associations from the command line

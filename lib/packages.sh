@@ -125,7 +125,8 @@ package_state() {
 # taps) and DIR/Brewfile.mas (App Store entries plus mas itself), each only
 # when it has entries. An app already in APPLICATIONS_DIR is left out: brew
 # refuses to install over an app it didn't install, failing the whole bundle.
-# A selected pipx / uv / go package whose command is missing pulls in its
+# So is a formula or cask whose check command is already on PATH, however it
+# was installed (no second copy). A selected pipx / uv / go package whose command is missing pulls in its
 # tool (brew "pipx", "uv", "go") unless that formula is listed already.
 write_brewfiles() {
   local dir="$1" rows id source ref check _category _description tap
@@ -142,9 +143,10 @@ write_brewfiles() {
         continue ;;
       *) continue ;;
     esac
-    if [ "$source" != formula ] && [ "$(package_state "$source" "$check")" = installed ]; then
-      case "$check" in
-        bin:*) echo "  $id: ${check#bin:} already installed - left alone" ;;
+    if [ "$(package_state "$source" "$check")" = installed ]; then
+      case "$source:$check" in
+        *:bin:*) echo "  $id: ${check#bin:} already installed - left alone" ;;
+        formula:*) echo "  $id: $check already installed - left alone" ;;
         *) echo "  $id: $check.app already in $APPLICATIONS_DIR - left alone" ;;
       esac
       continue
