@@ -83,6 +83,9 @@ parse_args --help; assert_eq "$ACTION" help
 it "--list-packages sets its action"
 parse_args --list-packages; assert_eq "$ACTION" list-packages
 
+it "--save-settings sets its action; the ids stay in CLI_STEPS"
+parse_args --save-settings alt-tab tabby; assert_eq "$ACTION|$CLI_STEPS" "save-settings|alt-tab tabby"
+
 it "unknown option is exit 2 with a message"
 out="$(parse_args --bogus 2>&1)"; rc=$?
 assert_eq "$rc" 2
@@ -102,7 +105,7 @@ done
 
 it "usage lists the options"
 out="$(usage)"
-for o in --skip --dry-run --no-pull --config --list --list-packages --help; do
+for o in --skip --dry-run --no-pull --config --list --list-packages --save-settings --help; do
   assert_contains "$out" "$o"
 done
 
@@ -960,6 +963,59 @@ write_alttab "$(alttab_domain)" appearanceTheme=0
 run_app_settings apply
 assert_contains "$OUT" "AltTab: set appearanceTheme"
 
+it "the secret guard finds keys in plist, embedded plist / JSON, JSON, YAML and key=value"
+out="$(python3 -B - "$REPO/apps" <<'PYEOF'
+import sys, plistlib, json
+sys.path.insert(0, sys.argv[1])
+import app_settings as a
+inner = plistlib.dumps({"licenseKey": "x", "ok": 1}, fmt=plistlib.FMT_BINARY)
+print(a.find_secret_keys(plistlib.dumps({"a": 1, "nested": {"apiToken": "t"}, "blob": inner}), "x.plist"))
+print(a.find_secret_keys(plistlib.dumps({"data": json.dumps({"deep": [{"Password": 1}]}).encode()}), "x.sidebarbackup"))
+print(a.find_secret_keys(json.dumps({"a": {"b": [{"clientSecret": 1}]}}).encode(), "x.json"))
+print(a.find_secret_keys(b"theme: dark\npassword: hunter2\n", "x.yaml"))
+print(a.find_secret_keys(b"encrypted: true\nvault: x\ntoken: y\n", "x.yaml"))
+print(a.find_secret_keys(b"name=x\nSERIAL = 1\n", "x.conf"))
+print(a.find_secret_keys(plistlib.dumps({"theme": 2}), "x.plist"))
+print(a.find_secret_keys(plistlib.dumps({"com.apple.Passwords": {"pinned": True}, "passwordLength": 3}), "x.plist"))
+PYEOF
+)"
+assert_eq "$out" "['apiToken', 'licenseKey']
+['Password']
+['clientSecret']
+['password']
+[]
+['SERIAL']
+[]
+['passwordLength']"
+
+it "a secret in an export is not written; the other apps still export, exit 1"
+app_sandbox
+write_registry 'tool | file | ~/Library/Application Support/tool/config.json | Tool' \
+  'alt-tab | defaults | com.lwouis.alt-tab-macos | AltTab'
+mkdir -p "$AAPPS/Tool.app" "$AH/Library/Application Support/tool"
+echo '{"ui": {"theme": "dark", "apiToken": "abc"}}' > "$AH/Library/Application Support/tool/config.json"
+write_alttab "$(alttab_domain)" appearanceTheme=2
+run_app_settings export
+assert_eq "$RC" 1
+assert_contains "$OUT" "Tool: failed: secret keys in export: apiToken - not written"
+[ -e "$AS/tool.json" ] && fail "secret export written"
+[ -f "$AS/alt-tab.plist" ] || fail "AltTab not exported"
+
+it "export takes app ids, skips apps that are not installed, rejects unknown ids"
+app_sandbox
+write_alttab "$(alttab_domain)" appearanceTheme=2
+write_sidebar_backup "$(sidebar_support)/2.2.5_20260923-080000_AAAAAAAA.sidebarbackup"
+run_app_settings export alt-tab
+assert_eq "$RC" 0
+[ -f "$AS/alt-tab.plist" ] || fail "alt-tab not exported"
+[ -e "$AS/sidebar.sidebarbackup" ] && fail "sidebar exported without being asked"
+rmdir "$AAPPS/Sidebar.app"
+run_app_settings export
+assert_contains "$OUT" "Sidebar: not installed - skipped"
+run_app_settings export nope
+assert_eq "$RC" 2
+assert_contains "$OUT" "unknown app: nope (see apps/registry.txt)"
+
 it "file export copies the settings file"
 app_sandbox
 write_registry 'tabby | file | ~/Library/Application Support/tabby/config.yaml | Tabby'
@@ -1217,6 +1273,32 @@ mkdir -p "$SB/home/.config/macos-base-config"
 run_bootstrap --no-pull manual apps editor
 assert_eq "$(headers)" "== editor == apps == manual == summary "
 assert_contains "$(cat "$LOG")" "python3 app_settings.py apply --dir $SB/home/.config/macos-base-config"
+
+it "--save-settings exports into SETTINGS_DIR and shows the private repo's changes"
+make_sandbox
+mkdir -p "$SB/home/.config/macos-base-config/settings"
+run_bootstrap --save-settings alt-tab
+assert_eq "$RC" 0
+assert_contains "$(cat "$LOG")" "python3 $APP/apps/app_settings.py export --dir $SB/home/.config/macos-base-config/settings alt-tab"
+assert_contains "$(cat "$LOG")" "git -C $SB/home/.config/macos-base-config/settings status --short"
+assert_contains "$(cat "$LOG")" "git -C $SB/home/.config/macos-base-config/settings diff --stat"
+assert_not_contains "$(cat "$LOG")" "commit"
+assert_not_contains "$OUT" "== summary"
+
+it "--save-settings outside a git repo shows no git output; the export's exit code wins"
+make_sandbox
+stub "$SB/bin/git" git 128
+stub "$SB/bin/python3" python3 1
+run_bootstrap --save-settings
+assert_eq "$RC" 1
+assert_not_contains "$(cat "$LOG")" "status --short"
+
+it "--save-settings dry run only shows the export"
+make_sandbox
+run_bootstrap --dry-run --save-settings
+assert_eq "$RC" 0
+assert_contains "$OUT" "+ python3 $APP/apps/app_settings.py export --dir $SB/home/.config/macos-base-config"
+assert_eq "$(cat "$LOG")" ""
 
 it "apps skips without a settings dir"
 make_sandbox

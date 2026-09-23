@@ -4,7 +4,7 @@ App settings - AltTab, Sidebar and the other apps in registry.txt - kept
 outside this public repo, without licenses.
 
     python3 app_settings.py apply [--dir DIR] [--dry-run]   DIR -> this Mac (bootstrap: apps step)
-    python3 app_settings.py export [--dir DIR]              this Mac -> DIR
+    python3 app_settings.py export [id...] [--dir DIR]      this Mac -> DIR (bootstrap: --save-settings)
 
 DIR is the private settings directory: SETTINGS_DIR in the bootstrap config,
 by default ~/.config/macos-base-config/settings (or the folder itself when it
@@ -123,6 +123,81 @@ def default_settings_dir() -> Path:
     return config_dir / "settings" if (config_dir / "settings").is_dir() else config_dir
 
 
+class SecretFound(Exception):
+    pass
+
+
+YAML_KEY = re.compile(r"^\s*-?\s*([A-Za-z0-9_.-]+)\s*:")
+ASSIGNED_KEY = re.compile(r"^\s*([A-Za-z0-9_.-]+)\s*[:=]")
+
+
+def _embedded(value: bytes | str) -> object | None:
+    """a plist or JSON document stored inside a value (Sidebar keeps its
+    settings that way), None when the value is plain data"""
+    raw = value.encode() if isinstance(value, str) else value
+    head = raw.lstrip()[:6]
+    try:
+        if raw.startswith(b"bplist") or head.startswith(b"<?xml"):
+            return plistlib.loads(raw)
+        if head[:1] in (b"{", b"["):
+            return json.loads(raw)
+    except (ValueError, UnicodeDecodeError):
+        return None
+    return None
+
+
+# a bundle id used as a key (Sidebar pins apps by it): com.apple.Passwords is
+# an app, not a password
+BUNDLE_ID = re.compile(r"[a-z][a-z0-9-]*(\.[A-Za-z0-9-]+){2,}")
+
+
+def _collect_secret_keys(value: object, found: set[str]) -> None:
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            if is_secret_key(str(key)) and not BUNDLE_ID.fullmatch(str(key)):
+                found.add(str(key))
+            _collect_secret_keys(inner, found)
+    elif isinstance(value, list):
+        for inner in value:
+            _collect_secret_keys(inner, found)
+    elif isinstance(value, (bytes, str)):
+        nested = _embedded(value)
+        if nested is not None:
+            _collect_secret_keys(nested, found)
+
+
+def find_secret_keys(data: bytes, name: str) -> list[str]:
+    """the keys in an export that look like a license, token or password,
+    by the file's type: plist / JSON recursively (documents embedded in values
+    included), YAML per `key:` line - unless it is encrypted, like Tabby's
+    vault - and anything else per `key=` / `key:` line"""
+    suffix = Path(name).suffix.lower()
+    found: set[str] = set()
+    if suffix in (".plist", ".sidebarbackup"):
+        _collect_secret_keys(plistlib.loads(data), found)
+    elif suffix == ".json":
+        _collect_secret_keys(json.loads(data), found)
+    else:
+        text = data.decode(errors="replace")
+        yaml = suffix in (".yaml", ".yml")
+        if yaml and re.search(r"^encrypted:\s*true\s*$", text, re.MULTILINE):
+            return []
+        pattern = YAML_KEY if yaml else ASSIGNED_KEY
+        for line in text.splitlines():
+            match = pattern.match(line)
+            if match and is_secret_key(match.group(1)):
+                found.add(match.group(1))
+    return sorted(found)
+
+
+def write_export(target: Path, data: bytes) -> None:
+    """write an export - never one that still holds a secret"""
+    secrets = find_secret_keys(data, target.name)
+    if secrets:
+        raise SecretFound(f"secret keys in export: {', '.join(secrets)} - not written")
+    write_private(target, data)
+
+
 def write_private(path: Path, data: bytes) -> None:
     """write a settings file readable only by you, like config.sh (600) - it
     shows your pinned apps, links and screen names"""
@@ -210,7 +285,7 @@ def export_defaults(entry: Entry, settings_dir: Path) -> None:
         print(f"  {entry.app}: no settings on this Mac - skipped")
         return
     target = settings_dir / f"{entry.id}.plist"
-    write_private(target, plistlib.dumps(portable_settings(domain), fmt=plistlib.FMT_XML))
+    write_export(target, plistlib.dumps(portable_settings(domain), fmt=plistlib.FMT_XML))
     print(f"  {entry.app}: {target}")
 
 
@@ -242,7 +317,7 @@ def export_file(entry: Entry, settings_dir: Path) -> None:
         print(f"  {entry.app}: no settings on this Mac - skipped")
         return
     target = settings_file(settings_dir, entry)
-    write_private(target, source.read_bytes())
+    write_export(target, source.read_bytes())
     print(f"  {entry.app}: {target}")
 
 
@@ -268,6 +343,9 @@ def apply_file(entry: Entry, source: Path, dry_run: bool) -> None:
 
 
 def export_entry(entry: Entry, settings_dir: Path) -> None:
+    if not app_installed(entry.app):
+        print(f"  {entry.app}: not installed - skipped")
+        return
     if entry.kind == "defaults":
         export_defaults(entry, settings_dir)
     elif entry.kind == "file":
@@ -338,7 +416,7 @@ def export_sidebar(entry: Entry, settings_dir: Path) -> None:
         "createdAt": datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None),
         "reason": "manual",
     }
-    write_private(target, plistlib.dumps(clean, fmt=plistlib.FMT_BINARY))
+    write_export(target, plistlib.dumps(clean, fmt=plistlib.FMT_BINARY))
     print(f"  {entry.app}: {target} (from {source.name})")
 
 
@@ -370,6 +448,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=["apply", "export"])
+    parser.add_argument("ids", nargs="*", metavar="id", help="only these apps (ids from registry.txt)")
     parser.add_argument("--dir", type=Path, default=None,
                         help="private settings directory (default: ~/.config/macos-base-config)")
     parser.add_argument("--dry-run", action="store_true", help="apply: change nothing")
@@ -379,6 +458,12 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, RegistryError) as error:
         print(f"app_settings: {error}", file=sys.stderr)
         return 2
+    unknown = [app_id for app_id in args.ids if app_id not in {entry.id for entry in entries}]
+    if unknown:
+        print(f"app_settings: unknown app: {unknown[0]} (see apps/registry.txt)", file=sys.stderr)
+        return 2
+    if args.ids:
+        entries = [entry for entry in entries if entry.id in args.ids]
     settings_dir = (args.dir or default_settings_dir()).expanduser()
     if args.command == "export":
         try:
@@ -395,7 +480,7 @@ def main(argv: list[str] | None = None) -> int:
                 export_entry(entry, settings_dir)
             else:
                 apply_entry(entry, settings_dir, args.dry_run)
-        except (OSError, ValueError, KeyError, AppStillRunning,
+        except (OSError, ValueError, KeyError, AppStillRunning, SecretFound,
                 subprocess.CalledProcessError) as error:
             print(f"  {entry.app}: failed: {error}", file=sys.stderr)
             failed = True
