@@ -326,7 +326,10 @@ The `@base` packages:
 - `pipx`, `uv` and `go` are installed by the `brew` step when a selected
   package needs them. `npm` packages need Node: `nvm install --lts` first.
 - A package whose command is already on your `PATH` is left alone, however it
-  was installed.
+  was installed. `~/.local/bin` and `~/go/bin` (where pipx, `uv tool`,
+  `go install` and most install scripts put commands) count too; put them on
+  your shell's `PATH` to use what lands there.
+- Install scripts are fetched over https only.
 
 ### App settings
 

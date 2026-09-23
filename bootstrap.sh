@@ -30,6 +30,7 @@ case "$ACTION" in
 esac
 load_config "$CONFIG_PATH" || exit 2
 if [ "$ACTION" = list-packages ]; then
+  user_bin_dirs_on_path
   print_package_list "$SELECTED_PACKAGES" || exit 2
   exit 0
 fi

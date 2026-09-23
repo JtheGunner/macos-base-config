@@ -207,6 +207,12 @@ out="$(PACKAGE_CATALOG="$f" catalog_rows 2>&1)"; rc=$?
 assert_eq "$rc" 2
 assert_contains "$out" "$f:1: tab inside a column"
 
+it "a script package must be fetched over https"
+f="$(write_catalog 'x | script | http://example.test/i.sh | x | ai | plain http')"
+out="$(PACKAGE_CATALOG="$f" catalog_rows 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "$f:1: script needs an https:// URL"
+
 it "a missing catalog is exit 2"
 out="$(PACKAGE_CATALOG="$TMP/nope.txt" catalog_rows 2>&1)"; rc=$?
 assert_eq "$rc" 2
@@ -819,7 +825,7 @@ sandbox_config() {
 
 # run_bootstrap ARG... -> OUT (stdout + stderr), RC. stdin is /dev/null.
 run_bootstrap() {
-  OUT="$(env -u XDG_CONFIG_HOME -u DOTFILES_TERMINALS -u PACKAGES HOME="$SB/home" \
+  OUT="$(env -u XDG_CONFIG_HOME -u DOTFILES_TERMINALS -u PACKAGES -u GOBIN HOME="$SB/home" \
     PATH="$SB/bin:/usr/bin:/bin" KARABINER_APP="$SB/Karabiner-Elements.app" \
     BREW_CANDIDATES="$SB/homebrew/bin/brew" KARABINER_WAIT_SECONDS=0 \
     KEYBOARD_SYSTEM_DIR="$SB/system-layouts" SWIFT="${SWIFT_BIN:-$SB/bin/swift}" \
@@ -1370,7 +1376,7 @@ extras_sandbox "@all"
 run_bootstrap --no-pull extras
 SB_CATALOG=""
 assert_eq "$RC" 0
-assert_eq "$(cat "$LOG")" "curl -fsSL $SCRIPT_URL
+assert_eq "$(cat "$LOG")" "curl --proto =https --tlsv1.2 -fsSL $SCRIPT_URL
 script-ran
 npm install -g sass
 pipx install huggingface-hub
@@ -1421,7 +1427,7 @@ rm "$SB/bin/npm" "$SB/bin/pipx" "$SB/bin/uv" "$SB/bin/go"
 run_bootstrap --dry-run --no-pull extras
 SB_CATALOG=""
 assert_eq "$RC" 0
-assert_contains "$OUT" "+ curl -fsSL $SCRIPT_URL | bash"
+assert_contains "$OUT" "+ curl --proto '=https' --tlsv1.2 -fsSL $SCRIPT_URL | bash"
 assert_contains "$OUT" "+ npm install -g sass"
 assert_contains "$OUT" "+ pipx install huggingface-hub"
 assert_contains "$OUT" "+ uv tool install nano-pdf"
@@ -1433,6 +1439,36 @@ make_sandbox
 run_bootstrap --no-pull manual extras brew
 assert_eq "$(headers)" "== brew == extras == manual == summary "
 assert_contains "$OUT" "  extras     skipped  (no extra packages selected)"
+
+it "commands in ~/.local/bin and ~/go/bin count as installed, also for brew"
+extras_sandbox "hf gopls"
+stub "$SB/home/.local/bin/hf" hf
+stub "$SB/home/go/bin/gopls" gopls
+brew_stub
+run_bootstrap --no-pull brew extras
+SB_CATALOG=""
+assert_eq "$RC" 0
+assert_not_contains "$(cat "$LOG")" "pipx"
+assert_not_contains "$(cat "$LOG")" "go install"
+assert_contains "$OUT" "hf: hf already installed"
+assert_contains "$OUT" "gopls: gopls already installed"
+
+it "an install whose command is still not on PATH says so"
+extras_sandbox "nano-pdf"
+run_bootstrap --no-pull extras
+SB_CATALOG=""
+assert_eq "$RC" 0
+assert_contains "$OUT" "nano-pdf: installed, but nano-pdf is not on PATH"
+
+it "extras finds Homebrew's tools when brew is not on PATH"
+extras_sandbox "hf"
+rm "$SB/bin/brew" "$SB/bin/pipx"
+stub "$SB/homebrew/bin/brew" brew
+stub "$SB/homebrew/bin/pipx" pipx
+run_bootstrap --no-pull extras
+SB_CATALOG=""
+assert_eq "$RC" 0
+assert_eq "$(cat "$LOG")" "pipx install huggingface-hub"
 
 it "the brew run pulls in pipx for a selected pipx package"
 extras_sandbox "hf"

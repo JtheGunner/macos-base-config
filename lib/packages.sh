@@ -41,6 +41,7 @@ catalog_rows() {
       if (category !~ /^[a-z][a-z0-9-]*$/) { problem("invalid category: " category); next }
       if (category == "all") { problem("category @all is reserved"); next }
       if (index(sources, " " source " ") == 0) { problem("unknown source: " source); next }
+      if (source == "script" && ref !~ /^https:\/\//) { problem("script needs an https:// URL"); next }
       if (source == "mas" && (ref !~ /^[0-9]+$/ || check == "-")) {
         problem("mas needs a numeric App Store id and the app name"); next
       }
@@ -89,6 +90,18 @@ select_packages() {
       print ""
     }
   '
+}
+
+# user_bin_dirs_on_path -> append the dirs pipx, uv tool, go install and vendor
+# install scripts write to (~/.local/bin, $GOBIN or ~/go/bin) to PATH for this
+# run. On a fresh Mac they are not on PATH yet (the dotfiles step comes later):
+# a package there would look missing and be installed again on every run.
+user_bin_dirs_on_path() {
+  local dir
+  for dir in "$HOME/.local/bin" "${GOBIN:-$HOME/go/bin}"; do
+    case ":$PATH:" in *":$dir:"*) ;; *) PATH="$PATH:$dir" ;; esac
+  done
+  export PATH
 }
 
 # package_state SOURCE CHECK -> "installed" or "missing"; empty when CHECK is

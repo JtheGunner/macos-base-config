@@ -147,6 +147,8 @@ step_brew() {
     return 1
   fi
   dir="$(mktemp -d "${tmp_root%/}/macos-base-config.XXXXXX")" || return 1
+  # packages in ~/.local/bin / ~/go/bin count as installed: no pipx / uv / go for them
+  user_bin_dirs_on_path
   if ! write_brewfiles "$dir" "$SELECTED_PACKAGES"; then
     rm -rf "$dir"
     return 1
@@ -176,9 +178,9 @@ install_extra() {
   local installer
   case "$1" in
     script)
-      echo "+ curl -fsSL $2 | bash"
+      echo "+ curl --proto '=https' --tlsv1.2 -fsSL $2 | bash"
       $DRY_RUN && return 0
-      installer="$(curl -fsSL "$2")" || return 1
+      installer="$(curl --proto '=https' --tlsv1.2 -fsSL "$2")" || return 1
       /bin/bash -c "$installer" ;;
     npm) run_cmd npm install -g "$2" ;;
     pipx) run_cmd pipx install "$2" ;;
@@ -194,6 +196,9 @@ step_extras() {
   local rows id source ref check _category _description tool
   local selected=false failed="" need_node=""
   rows="$(catalog_rows)" || { STEP_FAIL_REASON="package catalog"; return 1; }
+  # Homebrew's pipx / uv / go, also when brew isn't on this shell's PATH yet
+  find_brew >/dev/null 2>&1 || true
+  user_bin_dirs_on_path
   # rows on fd 3: an installer that reads stdin must not eat the rest
   while IFS=$'\t' read -r id source ref check _category _description <&3; do
     case " $SELECTED_PACKAGES " in *" $id "*) ;; *) continue ;; esac
@@ -215,7 +220,11 @@ step_extras() {
       fi
       continue
     fi
-    install_extra "$source" "$ref" || failed="$failed $id"
+    if ! install_extra "$source" "$ref"; then
+      failed="$failed $id"
+    elif ! $DRY_RUN && ! command -v "$check" >/dev/null 2>&1; then
+      echo "  $id: installed, but $check is not on PATH - add its directory to PATH (e.g. in the dotfiles)"
+    fi
   done 3<<< "$rows"
   if ! $selected; then
     skip "no extra packages selected"
