@@ -23,8 +23,8 @@ PACKAGES="@base"
 
 # --- brew step ----------------------------------------------------------------
 
-# Extra Brewfile for apps only this machine needs, installed after the repo's
-# Brewfile, e.g. "~/.config/macos-base-config/Brewfile". Empty = none.
+# Extra Brewfile for apps outside the catalog, installed after the selected
+# packages, e.g. "~/.config/macos-base-config/Brewfile". Empty = none.
 BREW_BUNDLE_EXTRA=""
 
 # --- macos step ---------------------------------------------------------------
