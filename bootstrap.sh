@@ -47,5 +47,6 @@ echo
 echo "== manual, not scriptable"
 echo "  - Karabiner permissions: karabiner-windows-keyboard-mapping-macos/setup.sh prints them"
 echo "  - Swiss keyboard layout: swiss-windows-keyboard-layout-macos/README.md"
-echo "  - see README.md 'General settings' (VoiceOver off, Gatekeeper, AltTab, uBar)"
+echo "  - PhpStorm: Settings > Tools > Terminal > 'Use Option as Meta key' off (AltGr in the console)"
+echo "  - see README.md 'Manual steps' (VoiceOver off, Gatekeeper, AltTab, uBar)"
 $DRY && echo $'\n(dry run)'
