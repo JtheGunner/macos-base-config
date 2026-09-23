@@ -62,6 +62,7 @@ the summary at the end (exit code 1), it never aborts the rest.
    ├─ jetbrains   JetBrains keymap → IDE config, set active (skipped until PhpStorm has a config)
    ├─ vscode      same keymap → VS Code / Antigravity         (same condition)
    ├─ editor      font settings → settings.json of every VS Code-family editor
+   ├─ apps        AltTab settings; Sidebar backup → its backup list   (no licenses)
    ├─ dotfiles    the dotfiles repo's own bootstrap.sh: shell, prompt, git, tmux, Ghostty
    ├─ manual      print the manual steps
    └─ summary     ok / skipped / failed per step
@@ -89,6 +90,7 @@ step named, every step runs.
 | 🧠 | `jetbrains` | `ide-keymaps/apply.sh`                              |
 | 💻 | `vscode`    | `ide-keymaps/port-vscode.sh`                        |
 | 🔤 | `editor`    | `editor-settings/apply.py`                          |
+| 🗂️ | `apps`      | `apps/app_settings.py apply`                        |
 | 🐚 | `dotfiles`  | `dotfiles/bootstrap.sh`                             |
 | ✋ | `manual`    | print the manual steps                              |
 
@@ -215,6 +217,7 @@ them.
 | 🔐 | **Karabiner permissions** | Driver Extension, Input Monitoring, Accessibility. `karabiner-windows-keyboard-mapping-macos/setup.sh` opens the panes and lists the steps |
 | 🇨🇭 | **Input source**          | check *Custom Swiss German* under System Settings → Keyboard → Input Sources, then log out and in. The `keyboard` step enables it when it can |
 | 🛡️ | **Gatekeeper**            | only with `MACOS_DISABLE_GATEKEEPER=1`: confirm "Allow applications from: Anywhere" under Privacy & Security (the `macos` step opens it)    |
+| 📌 | **Sidebar settings**      | Sidebar → Settings → Expert → Backups → **Restore** the backup the `apps` step added (Sidebar has no way to import from a script)           |
 | 🔑 | **Licenses**              | AltTab (Pro) and Sidebar: enter the keys from your password manager in each app                                                             |
 
 ---
@@ -287,6 +290,28 @@ everything in the [`Brewfile`](Brewfile):
 - An app already in `/Applications` that Homebrew didn't install is left alone.
 - Apps only this machine needs go in your own Brewfile: set
   `BREW_BUNDLE_EXTRA` in the [config](#%EF%B8%8F-configuration).
+
+### App settings
+
+The `apps` step brings the AltTab and Sidebar settings from
+[`apps/`](apps) onto the Mac. **No license is ever stored in the repo**, so
+enter those from your password manager once per Mac.
+
+|    | App     | In the repo                                                                                                     | On `./bootstrap.sh apps`                                                              |
+|:--:|---------|-----------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------|
+| 🔀 | AltTab  | `apps/alttab.plist`: its preferences, minus window frames, update and telemetry state                           | merged into its preferences; AltTab restarts. Unchanged settings leave it running      |
+| 📌 | Sidebar | `apps/sidebar.sidebarbackup`: a Sidebar backup without license, usage data, statistics, calendars or window state | added to Sidebar's backup list; restore it there (Settings → Expert → Backups)         |
+
+To save the settings of this Mac into the repo (for Sidebar, first create a
+backup in Sidebar → Settings → Expert → Backups → *Create backup*):
+
+```sh
+python3 apps/app_settings.py export
+```
+
+> [!WARNING]
+> This repository is public. The Sidebar backup still shows which apps and
+> links you pin and your screen names; it holds no license and no usage data.
 
 ---
 

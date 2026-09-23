@@ -3,7 +3,7 @@
 # Sourced; defines data and functions only, no side effects.
 
 # Execution order. Every name has a step_<name> function in lib/steps.sh.
-ALL_STEPS="repos brew karabiner keyboard macos jetbrains vscode editor dotfiles manual"
+ALL_STEPS="repos brew karabiner keyboard macos jetbrains vscode editor apps dotfiles manual"
 
 step_description() {
   case "$1" in
@@ -15,6 +15,7 @@ step_description() {
     jetbrains) echo "JetBrains keymap into the PhpStorm / IntelliJ config" ;;
     vscode)    echo "port the keymap to VS Code / Antigravity" ;;
     editor)    echo "editor font settings for every VS Code-family editor" ;;
+    apps)      echo "AltTab settings; Sidebar backup into its backup list (no licenses)" ;;
     dotfiles)  echo "run the dotfiles repo's bootstrap (shell, git, tmux, Ghostty)" ;;
     manual)    echo "print the manual, non-scriptable steps" ;;
   esac
