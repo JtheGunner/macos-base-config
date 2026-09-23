@@ -3,12 +3,13 @@
 # Sourced; defines data and functions only, no side effects.
 
 # Execution order. Every name has a step_<name> function in lib/steps.sh.
-ALL_STEPS="repos brew karabiner keyboard macos jetbrains vscode editor apps dotfiles manual"
+ALL_STEPS="repos brew extras karabiner keyboard macos jetbrains vscode editor apps dotfiles manual"
 
 step_description() {
   case "$1" in
     repos)     echo "clone missing / pull existing sibling repos (repos.txt)" ;;
     brew)      echo "install Homebrew if missing, then the selected brew / App Store packages (PACKAGES)" ;;
+    extras)    echo "install the selected packages that don't come from Homebrew (script, npm, pipx, uv, go)" ;;
     karabiner) echo "apply the Karabiner config (needs Karabiner-Elements)" ;;
     keyboard)  echo "install and enable the Custom Swiss German keyboard layout" ;;
     macos)     echo "macOS defaults: system hotkeys, Finder shortcut, font smoothing, Gatekeeper" ;;

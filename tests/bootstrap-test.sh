@@ -6,8 +6,8 @@
 #
 # End-to-end cases run bootstrap.sh inside a throwaway sandbox: a copy of the
 # scripts next to stub sibling repos, a fake HOME, and stub tools (git, brew,
-# python3, omnishell, curl, open, swift, sudo, spctl) that only log their
-# arguments.
+# python3, omnishell, curl, open, swift, sudo, spctl; npm, pipx, uv, go where a
+# test needs them) that only log their arguments.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -28,13 +28,13 @@ assert_not_contains() {
 . "$REPO/lib/cli.sh"
 
 it "no steps selects every step in order"
-assert_eq "$(select_steps "" "")" "repos brew karabiner keyboard macos jetbrains vscode editor apps dotfiles manual"
+assert_eq "$(select_steps "" "")" "repos brew extras karabiner keyboard macos jetbrains vscode editor apps dotfiles manual"
 
 it "steps run in table order, aliases expand"
 assert_eq "$(select_steps "dotfiles keymaps" "")" "jetbrains vscode dotfiles"
 
 it "skip removes steps, aliases included"
-assert_eq "$(select_steps "" "keymaps dotfiles")" "repos brew karabiner keyboard macos editor apps manual"
+assert_eq "$(select_steps "" "keymaps dotfiles")" "repos brew extras karabiner keyboard macos editor apps manual"
 
 it "duplicates collapse"
 assert_eq "$(select_steps "macos macos keymaps jetbrains" "")" "macos jetbrains vscode"
@@ -47,7 +47,7 @@ assert_eq "$(select_steps "keymaps
 dotfiles" "")" "jetbrains vscode dotfiles"
 assert_eq "$(select_steps "" "
   dotfiles
-")" "repos brew karabiner keyboard macos jetbrains vscode editor apps manual"
+")" "repos brew extras karabiner keyboard macos jetbrains vscode editor apps manual"
 assert_eq "$(select_steps "$(printf 'macos\tmanual')" "")" "macos manual"
 
 it "unknown step is exit 2 with a message"
@@ -96,7 +96,7 @@ assert_eq "$rc" 2
 
 it "step list names every step and the alias"
 out="$(print_step_list)"
-for s in repos brew karabiner keyboard macos jetbrains vscode editor apps dotfiles manual keymaps; do
+for s in repos brew extras karabiner keyboard macos jetbrains vscode editor apps dotfiles manual keymaps; do
   assert_contains "$out" "$s"
 done
 
@@ -1339,6 +1339,107 @@ run_bootstrap --list-packages
 assert_eq "$RC" 2
 assert_contains "$OUT" "unknown package: bogus"
 assert_not_contains "$OUT" "@base"
+
+# --- the extras step --------------------------------------------------------
+SCRIPT_URL="https://example.test/install.sh"
+
+# extras_sandbox PACKAGES -> sandbox with a catalog of one package per extras
+# source, PACKAGES selected; curl serves a script that logs "script-ran"
+extras_sandbox() {
+  make_sandbox
+  SB_CATALOG="$SB/catalog.txt"
+  printf '%s\n' \
+    "claude   | script | $SCRIPT_URL              | claude   | ai  | Claude Code" \
+    'sass     | npm    | sass                     | sass     | dev | Sass compiler' \
+    'hf       | pipx   | huggingface-hub          | hf       | ai  | Hugging Face CLI' \
+    'nano-pdf | uv     | nano-pdf                 | nano-pdf | ai  | PDF tool' \
+    'gopls    | go     | golang.org/x/tools/gopls | gopls    | dev | Go language server' \
+    > "$SB_CATALOG"
+  sandbox_config "PACKAGES=\"$1\""
+  printf '#!/bin/bash\necho "curl $*" >> "%s"\necho "echo script-ran >> \\"%s\\""\n' "$LOG" "$LOG" > "$SB/bin/curl"
+  chmod +x "$SB/bin/curl"
+  local tool
+  for tool in npm uv go; do stub "$SB/bin/$tool" "$tool"; done
+  # pipx reads stdin: it must not eat the catalog rows the step loops over
+  printf '#!/bin/bash\ncat >/dev/null\necho "pipx $*" >> "%s"\n' "$LOG" > "$SB/bin/pipx"
+  chmod +x "$SB/bin/pipx"
+}
+
+it "extras installs every source once"
+extras_sandbox "@all"
+run_bootstrap --no-pull extras
+SB_CATALOG=""
+assert_eq "$RC" 0
+assert_eq "$(cat "$LOG")" "curl -fsSL $SCRIPT_URL
+script-ran
+npm install -g sass
+pipx install huggingface-hub
+uv tool install nano-pdf
+go install golang.org/x/tools/gopls@latest"
+assert_contains "$OUT" "  extras     ok"
+
+it "already installed commands are left alone"
+extras_sandbox "hf gopls"
+stub "$SB/bin/hf" hf
+run_bootstrap --no-pull extras
+SB_CATALOG=""
+assert_eq "$(cat "$LOG")" "go install golang.org/x/tools/gopls@latest"
+assert_contains "$OUT" "hf: hf already installed"
+
+it "npm without Node is skipped with a hint; the rest still installs"
+extras_sandbox "sass hf"
+rm "$SB/bin/npm"
+run_bootstrap --no-pull extras
+SB_CATALOG=""
+assert_eq "$RC" 0
+assert_eq "$(cat "$LOG")" "pipx install huggingface-hub"
+assert_contains "$OUT" "sass: skipped - install Node first (e.g. nvm install --lts)"
+assert_contains "$OUT" "  extras     skipped  (install Node first (e.g. nvm install --lts) for: sass)"
+
+it "a failing package fails the step by name, later packages still install"
+extras_sandbox "hf nano-pdf"
+stub "$SB/bin/pipx" pipx 1
+run_bootstrap --no-pull extras macos
+SB_CATALOG=""
+assert_eq "$RC" 1
+assert_contains "$(cat "$LOG")" "uv tool install nano-pdf"
+assert_contains "$OUT" "  extras     failed   (failed: hf)"
+assert_contains "$OUT" "  macos      ok"
+
+it "a missing tool fails its packages with a brew hint"
+extras_sandbox "hf"
+rm "$SB/bin/pipx"
+run_bootstrap --no-pull extras
+SB_CATALOG=""
+assert_eq "$RC" 1
+assert_contains "$OUT" "hf: pipx not found - run ./bootstrap.sh brew"
+assert_contains "$OUT" "  extras     failed   (failed: hf)"
+
+it "dry run prints every install, runs nothing"
+extras_sandbox "@all"
+rm "$SB/bin/npm" "$SB/bin/pipx" "$SB/bin/uv" "$SB/bin/go"
+run_bootstrap --dry-run --no-pull extras
+SB_CATALOG=""
+assert_eq "$RC" 0
+assert_contains "$OUT" "+ curl -fsSL $SCRIPT_URL | bash"
+assert_contains "$OUT" "+ npm install -g sass"
+assert_contains "$OUT" "+ pipx install huggingface-hub"
+assert_contains "$OUT" "+ uv tool install nano-pdf"
+assert_contains "$OUT" "+ go install golang.org/x/tools/gopls@latest"
+assert_eq "$(cat "$LOG")" ""
+
+it "extras skips when no extra package is selected, runs right after brew"
+make_sandbox
+run_bootstrap --no-pull manual extras brew
+assert_eq "$(headers)" "== brew == extras == manual == summary "
+assert_contains "$OUT" "  extras     skipped  (no extra packages selected)"
+
+it "the brew run pulls in pipx for a selected pipx package"
+extras_sandbox "hf"
+brew_stub
+run_bootstrap --no-pull brew
+SB_CATALOG=""
+assert_contains "$(cat "$LOG")" '  | brew "pipx"'
 
 # --- the dotfiles step ------------------------------------------------------
 # dotfiles_stub [EXIT] -> dotfiles/bootstrap.sh stub that also logs the
