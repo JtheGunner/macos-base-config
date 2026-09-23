@@ -120,6 +120,7 @@ cp config.example.sh ~/.config/macos-base-config/config.sh
 | `DOTFILES_ASSUME_YES`       | `0`                 | `1` = repoint stow links from another checkout without asking       |
 | `DOTFILES_TERMINALS`        | —                   | extra terminal stow packages for the dotfiles bootstrap             |
 | `DOTFILES_OMNISHELL_CONFIG` | —                   | own omnishell `config.toml`, applied after the dotfiles bootstrap   |
+| `DOTFILES_LOCAL_RC`         | —                   | shell lines for `~/.zshrc.local` + `~/.bashrc.local`, see [Machine-local shell aliases](#-machine-local-shell-aliases) |
 
 Steps named on the command line replace `BOOTSTRAP_STEPS`; `--skip` adds to
 `BOOTSTRAP_SKIP`. An invalid config (syntax error, unknown step, bad value)
@@ -206,7 +207,6 @@ scripted reliably.
 | 🔇 | **Disable VoiceOver**              | System Settings → Accessibility → VoiceOver → off, so `Ctrl+F5` isn't taken by VoiceOver                                                          |
 | 🛡️ | **Gatekeeper: apps from anywhere** | `sudo spctl --master-disable`, then System Settings → Privacy & Security → "Allow applications from: Anywhere"                                   |
 | 📦 | **Apps**                           | AltTab and uBar, see [Apps](#-apps-homebrew)                                                                                                      |
-| 🐚 | **Machine-local shell aliases**    | add them to `~/.zshrc.local`, see [Machine-local shell aliases](#-machine-local-shell-aliases)                                                     |
 
 ---
 
@@ -214,17 +214,34 @@ scripted reliably.
 
 The public [`dotfiles`](https://github.com/JtheGunner/dotfiles) repo keeps
 only generic aliases. Anything tied to this machine's setup goes in
-`~/.zshrc.local` (and `~/.bashrc.local` for bash). The dotfiles bootstrap
-sources both last and never version-controls them. Create the file by hand and
-add:
+`~/.zshrc.local` / `~/.bashrc.local`, which the dotfiles source last and never
+version-control. Set them through `DOTFILES_LOCAL_RC` in your `config.sh`:
 
 ```sh
+DOTFILES_LOCAL_RC='
 # Kubernetes dashboard: print a login token for the admin-user service account
 command -v kubectl >/dev/null 2>&1 &&
-  alias kdash-token='kubectl -n kubernetes-dashboard create token admin-user'
+  alias kdash-token="kubectl -n kubernetes-dashboard create token admin-user"
+'
 ```
 
-Open a new shell (`exec $SHELL`) to pick it up.
+The `dotfiles` step writes these lines into both files as one managed block:
+
+```text
+# >>> macos-base-config >>>
+# managed by macos-base-config (DOTFILES_LOCAL_RC) - edit its config.sh, not this block
+...
+# <<< macos-base-config <<<
+```
+
+- Every run replaces the block; whatever else is in those files stays as it is.
+- An empty `DOTFILES_LOCAL_RC` removes the block.
+- A file that doesn't exist yet is created readable only by you (`600`), since it
+  may hold tokens.
+- The lines must be valid for both bash and zsh. A syntax error stops the
+  bootstrap before any step runs.
+
+Run `./bootstrap.sh dotfiles`, then open a new shell (`exec $SHELL`).
 
 ---
 

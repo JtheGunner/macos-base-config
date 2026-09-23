@@ -32,3 +32,16 @@ DOTFILES_TERMINALS=""
 # the dotfiles bootstrap (which installs the repo's copy every run), then
 # applied with "omnishell apply -y". Empty = keep the dotfiles repo's config.
 DOTFILES_OMNISHELL_CONFIG=""
+
+# Shell lines for ~/.zshrc.local and ~/.bashrc.local (the dotfiles' untracked,
+# machine-specific rc files, sourced last by both shells). Written after the
+# dotfiles bootstrap as one managed block, replaced on every run; the rest of
+# those files is left alone. Empty = remove the block. Must be valid for both
+# bash and zsh. Example:
+#
+#   DOTFILES_LOCAL_RC='
+#   # Kubernetes dashboard: print a login token for the admin-user service account
+#   command -v kubectl >/dev/null 2>&1 &&
+#     alias kdash-token="kubectl -n kubernetes-dashboard create token admin-user"
+#   '
+DOTFILES_LOCAL_RC=""

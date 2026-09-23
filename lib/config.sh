@@ -26,7 +26,7 @@ load_config() {
   local config_file="${1:-}"
   BOOTSTRAP_STEPS=""; BOOTSTRAP_SKIP=""
   DOTFILES_DIR=""; DOTFILES_URL=""; DOTFILES_ASSUME_YES=0
-  DOTFILES_TERMINALS=""; DOTFILES_OMNISHELL_CONFIG=""
+  DOTFILES_TERMINALS=""; DOTFILES_OMNISHELL_CONFIG=""; DOTFILES_LOCAL_RC=""
 
   if [ -n "$config_file" ]; then
     [ -f "$config_file" ] || { echo "bootstrap.sh: config file not found: $config_file" >&2; return 2; }
@@ -63,6 +63,15 @@ validate_config() {
   esac
   if [ -n "$DOTFILES_OMNISHELL_CONFIG" ] && { [ ! -f "$DOTFILES_OMNISHELL_CONFIG" ] || [ ! -r "$DOTFILES_OMNISHELL_CONFIG" ]; }; then
     echo "bootstrap.sh: $config_file: DOTFILES_OMNISHELL_CONFIG is not a readable file: $DOTFILES_OMNISHELL_CONFIG" >&2
+    return 2
+  fi
+  # sourced by zsh and bash later - catch a broken snippet before any step runs
+  # (bash 3.2's -n can exit 0 on a syntax error, so any message counts as one)
+  local syntax_errors
+  if [ -n "$DOTFILES_LOCAL_RC" ] &&
+    { ! syntax_errors="$(printf '%s\n' "$DOTFILES_LOCAL_RC" | "$BASH" -n 2>&1)" || [ -n "$syntax_errors" ]; }; then
+    echo "$syntax_errors" >&2
+    echo "bootstrap.sh: $config_file: DOTFILES_LOCAL_RC has a syntax error" >&2
     return 2
   fi
 }
