@@ -12,6 +12,15 @@ BOOTSTRAP_STEPS=""
 # Steps (or aliases) never to run on this machine, e.g. "karabiner".
 BOOTSTRAP_SKIP=""
 
+# --- packages (brew step) -----------------------------------------------------
+
+# What to install from the catalog, packages/catalog.txt (see
+# ./bootstrap.sh --list-packages): package ids, @category or @all; a leading
+# "-" removes one, e.g. "@all -steam -@cli-ai". Nothing is required: ""
+# installs nothing. Without this key: "@base" = Karabiner-Elements, AltTab,
+# Sidebar, JetBrains Mono.
+PACKAGES="@base"
+
 # --- brew step ----------------------------------------------------------------
 
 # Extra Brewfile for apps only this machine needs, installed after the repo's

@@ -291,6 +291,44 @@ load_config "$f"; rc=$?
 assert_eq "$rc" 0
 assert_eq "$MACOS_DISABLE_GATEKEEPER" 1
 
+it "PACKAGES defaults to @base, with no config file or without the key"
+XDG_CONFIG_HOME="$TMP/none" load_config ""; rc=$?
+assert_eq "$rc" 0
+assert_eq "$PACKAGES" "@base"
+assert_eq "$SELECTED_PACKAGES" "karabiner-elements alt-tab sidebar font-jetbrains-mono"
+f="$(write_config 'BOOTSTRAP_STEPS="brew"')"
+load_config "$f"
+assert_eq "$SELECTED_PACKAGES" "karabiner-elements alt-tab sidebar font-jetbrains-mono"
+
+it "PACKAGES=\"\" selects nothing; tokens resolve in catalog order"
+f="$(write_config 'PACKAGES=""')"
+load_config "$f"; rc=$?
+assert_eq "$rc" 0
+assert_eq "$SELECTED_PACKAGES" ""
+f="$(write_config 'PACKAGES="font-jetbrains-mono
+  alt-tab"')"
+load_config "$f"
+assert_eq "$SELECTED_PACKAGES" "alt-tab font-jetbrains-mono"
+f="$(write_config 'PACKAGES="@base -sidebar"')"
+load_config "$f"
+assert_eq "$SELECTED_PACKAGES" "karabiner-elements alt-tab font-jetbrains-mono"
+
+it "a later load resets PACKAGES, also one from the environment"
+f="$(write_config 'PACKAGES=""')"
+load_config "$f"
+# a plain assignment, not a prefix: bash restores prefix variables after a function
+PACKAGES="alt-tab"
+XDG_CONFIG_HOME="$TMP/none" load_config ""
+assert_eq "$PACKAGES" "@base"
+assert_eq "$SELECTED_PACKAGES" "karabiner-elements alt-tab sidebar font-jetbrains-mono"
+
+it "an unknown package in the config is exit 2"
+f="$(write_config 'PACKAGES="@base bogus"')"
+out="$(load_config "$f" 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "unknown package: bogus"
+assert_contains "$out" "in $f (PACKAGES)"
+
 it "DOTFILES_LOCAL_RC defaults to empty and loads several lines"
 XDG_CONFIG_HOME="$TMP/none" load_config ""
 assert_eq "$DOTFILES_LOCAL_RC" ""
@@ -677,7 +715,7 @@ make_sandbox() {
   LOG="$SB/calls.log"
   mkdir -p "$APP" "$SB/home/.config/karabiner" "$SB/bin" "$SB/Karabiner-Elements.app"
   : > "$LOG"
-  cp -R "$REPO/bootstrap.sh" "$REPO/lib" "$REPO/repos.txt" "$REPO/Brewfile" "$APP/"
+  cp -R "$REPO/bootstrap.sh" "$REPO/lib" "$REPO/repos.txt" "$REPO/Brewfile" "$REPO/packages" "$APP/"
   stub "$APP/ide-keymaps/apply.sh" jetbrains-apply
   stub "$APP/ide-keymaps/port-vscode.sh" port-vscode
   mkdir -p "$APP/editor-settings" "$APP/apps"
@@ -1321,7 +1359,8 @@ assert_eq "$BOOTSTRAP_STEPS|$BOOTSTRAP_SKIP|$DOTFILES_DIR|$DOTFILES_URL|$DOTFILE
 assert_eq "$DOTFILES_LOCAL_RC" ""
 assert_eq "$BREW_BUNDLE_EXTRA" ""
 assert_eq "$MACOS_DISABLE_GATEKEEPER" 0
-for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP BREW_BUNDLE_EXTRA MACOS_DISABLE_GATEKEEPER DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG DOTFILES_LOCAL_RC; do
+assert_eq "$PACKAGES" "@base"
+for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP PACKAGES BREW_BUNDLE_EXTRA MACOS_DISABLE_GATEKEEPER DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG DOTFILES_LOCAL_RC; do
   assert_contains "$(cat "$REPO/config.example.sh")" "$key="
 done
 

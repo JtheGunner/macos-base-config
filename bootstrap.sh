@@ -18,6 +18,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 PARENT_DIR="$(cd "$HERE/.." && pwd)"
 
 . "$HERE/lib/cli.sh"
+. "$HERE/lib/packages.sh"
 . "$HERE/lib/config.sh"
 . "$HERE/lib/steps.sh"
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Per-machine config for bootstrap.sh: defaults, loading the config file, and
-# validation. Sourced; needs lib/cli.sh (select_steps) loaded first.
+# validation. Sourced; needs lib/cli.sh (select_steps) and lib/packages.sh
+# (select_packages) loaded first.
 #
 # The config file is plain bash (see config.example.sh) and is sourced, so it
 # must be the user's own file - it is never part of the repo.
@@ -20,13 +21,15 @@ expand_home() {
 }
 
 # load_config [PATH] -> sets BOOTSTRAP_STEPS, BOOTSTRAP_SKIP, BREW_BUNDLE_EXTRA,
-# MACOS_DISABLE_GATEKEEPER, the DOTFILES_* values, and CONFIG_FILE (the file in use - PATH or the default path, even
-# when that doesn't exist yet). Without PATH the default file is used if it
+# PACKAGES (+ the resolved SELECTED_PACKAGES), MACOS_DISABLE_GATEKEEPER, the
+# DOTFILES_* values, and CONFIG_FILE (the file in use - PATH or the default
+# path, even when that doesn't exist yet). Without PATH the default file is used if it
 # exists. Return 2 on a missing explicit file, a syntax error, or an invalid
 # value.
 load_config() {
   local config_file="${1:-}"
   BOOTSTRAP_STEPS=""; BOOTSTRAP_SKIP=""; BREW_BUNDLE_EXTRA=""
+  PACKAGES="@base"; SELECTED_PACKAGES=""
   MACOS_DISABLE_GATEKEEPER=0
   DOTFILES_DIR=""; DOTFILES_URL=""; DOTFILES_ASSUME_YES=0
   DOTFILES_TERMINALS=""; DOTFILES_OMNISHELL_CONFIG=""; DOTFILES_LOCAL_RC=""
@@ -37,16 +40,17 @@ load_config() {
     config_file="$(default_config_path)"
   fi
   CONFIG_FILE="$config_file"
-  [ -f "$config_file" ] || return 0
-  # bash 3.2's -n can exit 0 on a syntax error, so any message counts as one
-  local syntax_errors
-  if ! syntax_errors="$("$BASH" -n "$config_file" 2>&1)" || [ -n "$syntax_errors" ]; then
-    echo "$syntax_errors" >&2
-    echo "bootstrap.sh: syntax error in config: $config_file" >&2
-    return 2
+  if [ -f "$config_file" ]; then
+    # bash 3.2's -n can exit 0 on a syntax error, so any message counts as one
+    local syntax_errors
+    if ! syntax_errors="$("$BASH" -n "$config_file" 2>&1)" || [ -n "$syntax_errors" ]; then
+      echo "$syntax_errors" >&2
+      echo "bootstrap.sh: syntax error in config: $config_file" >&2
+      return 2
+    fi
+    # shellcheck source=/dev/null
+    . "$config_file"
   fi
-  # shellcheck source=/dev/null
-  . "$config_file"
   validate_config "$config_file"
 }
 
@@ -59,6 +63,10 @@ validate_config() {
 
   if ! select_steps "$BOOTSTRAP_STEPS" "$BOOTSTRAP_SKIP" >/dev/null; then
     echo "  in $config_file (BOOTSTRAP_STEPS / BOOTSTRAP_SKIP)" >&2
+    return 2
+  fi
+  if ! SELECTED_PACKAGES="$(select_packages "$PACKAGES")"; then
+    echo "  in $config_file (PACKAGES)" >&2
     return 2
   fi
   case "$MACOS_DISABLE_GATEKEEPER" in
