@@ -9,7 +9,8 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-PROJECTS="$(cd "$HERE/.." && pwd)"          # ~/Projects
+# sibling repos live next to this one, wherever it was cloned
+PARENT_DIR="$(cd "$HERE/.." && pwd)"
 DRY=false; DRYFLAG=()
 [[ "${1:-}" == "--dry-run" ]] && { DRY=true; DRYFLAG=(--dry-run); }
 # git ops: skipped in dry mode. sub-tools: always run (they get --dry-run).
@@ -18,12 +19,12 @@ DRY=false; DRYFLAG=()
 run() { echo "+ $*"; $DRY || "$@"; }
 step() { echo "+ $*"; "$@"; }
 
-echo "== sibling repos (into $PROJECTS)"
+echo "== sibling repos (into $PARENT_DIR)"
 while read -r name url apply _; do
   [[ -z "${name:-}" || "$name" == \#* ]] && continue
-  dst="$PROJECTS/$name"
+  dst="$PARENT_DIR/$name"
   if [[ -d "$dst/.git" ]]; then run git -C "$dst" pull --ff-only
-  else run git -C "$PROJECTS" clone "$url" "$name"; fi
+  else run git -C "$PARENT_DIR" clone "$url" "$name"; fi
   if [[ -n "${apply:-}" && -x "$dst/${apply#./}" ]]; then
     ( cd "$dst" && step "$apply" ${DRYFLAG[@]+"${DRYFLAG[@]}"} )
   elif [[ -f "$dst/README.md" ]]; then
