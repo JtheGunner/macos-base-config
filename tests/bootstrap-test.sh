@@ -177,6 +177,23 @@ catalog_rows >/dev/null; rc=$?
 assert_eq "$rc" 0
 assert_eq "$(select_packages "@base")" "karabiner-elements alt-tab sidebar font-jetbrains-mono"
 
+it "the shipped catalog covers every group and leaves the dotfiles' tools out"
+all=" $(select_packages @all) "
+for id in karabiner-elements firefox visual-studio-code filezilla claude claude-code maccy mouseboost-pro \
+  whatsapp windows-app nas-mount spotify coreutils gh gopls sass composer mariadb hf mlx-lm litellm \
+  nano-pdf gemini-cli openclaw ghostscript codexbar dutix; do
+  assert_contains "$all" " $id "
+done
+for group in base browser dev ai productivity communication remote media \
+  cli-shell cli-dev cli-ops cli-ai cli-docs cli-macos; do
+  select_packages "@$group" >/dev/null || fail "no category @$group"
+done
+refs=" $(catalog_rows | awk -F'\t' '{ n = split($3, part, "/"); printf "%s ", part[n] }') "
+for tool in stow git-delta fzf zoxide ripgrep fd bat eza starship mise tmux direnv broot \
+  zsh-autosuggestions zsh-syntax-highlighting omnishell ghostty; do
+  assert_not_contains "$refs" " $tool "
+done
+
 it "catalog rows are trimmed and tab-separated; a | in the description is kept"
 f="$(write_catalog '' '# comment' "  gh |formula|	gh |  -  | cli | GitHub CLI | the official one  ")"
 assert_eq "$(PACKAGE_CATALOG="$f" catalog_rows)" "$(printf 'gh\tformula\tgh\t-\tcli\tGitHub CLI | the official one')"
@@ -212,6 +229,17 @@ f="$(write_catalog 'x | script | http://example.test/i.sh | x | ai | plain http'
 out="$(PACKAGE_CATALOG="$f" catalog_rows 2>&1)"; rc=$?
 assert_eq "$rc" 2
 assert_contains "$out" "$f:1: script needs an https:// URL"
+
+it "bin: checks are for casks only; extras sources need a real check"
+f="$(write_catalog \
+  'cc  | cask    | claude-code | bin:claude | ai  | a command-only cask' \
+  'x   | formula | x           | bin:x      | cli | bin: on a formula' \
+  'hf  | pipx    | hf          | -          | ai  | no check')"
+out="$(PACKAGE_CATALOG="$f" catalog_rows 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_not_contains "$out" "$f:1:"
+assert_contains "$out" "$f:2: bin:<command> is for casks only"
+assert_contains "$out" "$f:3: pipx needs a command to check, not -"
 
 it "a missing catalog is exit 2"
 out="$(PACKAGE_CATALOG="$TMP/nope.txt" catalog_rows 2>&1)"; rc=$?
@@ -250,6 +278,26 @@ assert_eq "$(APPLICATIONS_DIR="$TMP/apps" package_state mas WhatsApp)" missing
 assert_eq "$(package_state pipx sh)" installed
 assert_eq "$(package_state npm no-such-command-xyz)" missing
 assert_eq "$(package_state formula -)" ""
+
+it "a cask that only installs a command is checked by that command"
+f="$(write_catalog 'cc | cask | claude-code | bin:sh | ai | a command-only cask' \
+  'cx | cask | nothing | bin:no-such-command-xyz | ai | missing')"
+assert_eq "$(package_state cask bin:sh)" installed
+assert_eq "$(package_state cask bin:no-such-command-xyz)" missing
+d="$(mktemp -d "$TMP/bf.XXXXXX")"
+out="$(PACKAGE_CATALOG="$f" write_brewfiles "$d" "cc cx")"
+assert_contains "$out" "cc: sh already installed - left alone"
+assert_eq "$(cat "$d/Brewfile")" 'cask "nothing"'
+
+it "a formula with a check command is left alone when that command exists"
+f="$(write_catalog 'here | formula | here-formula | sh | cli | its command is on PATH' \
+  'nope | formula | nope-formula | no-such-command-xyz | cli | missing' \
+  'free | formula | free-formula | - | cli | no check')"
+d="$(mktemp -d "$TMP/bf.XXXXXX")"
+out="$(PACKAGE_CATALOG="$f" write_brewfiles "$d" "here nope free")"
+assert_contains "$out" "here: sh already installed - left alone"
+assert_eq "$(cat "$d/Brewfile")" 'brew "nope-formula"
+brew "free-formula"'
 
 it "write_brewfiles: taps first, catalog order; App Store entries apart, with mas"
 f="$(write_catalog "${TEST_CATALOG_LINES[@]}")"

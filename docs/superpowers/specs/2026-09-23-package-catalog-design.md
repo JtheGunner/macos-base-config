@@ -231,22 +231,28 @@ plugins, omnishell, ghostty.
 | `base` | karabiner-elements, alt-tab, sidebar (`otuerk/sidebar/sidebar`), font-jetbrains-mono (cask) |
 | `browser` | firefox, google-chrome (cask) |
 | `dev` | visual-studio-code, antigravity, antigravity-ide, jetbrains-toolbox, tabby, docker-desktop, dbeaver-community, postman, wireshark-app (cask); filezilla (manual, https://filezilla-project.org/download.php?type=client) |
-| `ai` | claude (cask), claude-code (script), lm-studio (cask), mlx-dspark (cask, `arahim3/mlx-dspark`) |
-| `productivity` | bitwarden, google-drive, rectangle, shottr, trex, pearcleaner, swiftdefaultappsprefpane (cask); maccy 1527619437, mouseboost-pro 1555844307 (mas) |
-| `communication` | telegram (cask); whatsapp 310633997 (mas) |
-| `remote` | tailscale-app, teamviewer (cask); windows-app 1295203466 (mas); nas-mount (applet) |
+| `ai` | claude, claude-code (`bin:claude`), lm-studio, mlx-dspark (`arahim3/mlx-dspark`) (cask) |
+| `productivity` | bitwarden, google-drive, rectangle, shottr, trex, maccy, pearcleaner, swiftdefaultappsprefpane (cask); mouseboost-pro 1555844307 (mas) |
+| `communication` | telegram, whatsapp (cask) |
+| `remote` | tailscale-app, teamviewer, windows-app (cask); nas-mount (applet) |
 | `media` | spotify, vlc, steam (cask) |
 | `cli-shell` | coreutils, htop, tldr, screenfetch, iproute2mac (formula) |
-| `cli-dev` | gh, git-filter-repo, go, nvm, pipx, uv, python@3.12, python@3.14, php@8.3, php@8.4, composer, qodana (`jetbrains/utils/qodana`) (formula); gopls (go, `golang.org/x/tools/gopls`); sass (npm) |
+| `cli-dev` | gh, git-filter-repo, go, gopls, nvm, pipx, uv, python@3.12, python@3.14, php@8.3, php@8.4, composer, qodana (`jetbrains/utils/qodana`), sass (`dart-sass`) (formula) |
 | `cli-ops` | mariadb, mysql-client, helm, sshpass (formula) |
-| `cli-ai` | summarize, openai-whisper (formula); huggingface-hub, litellm, mlx-lm, mlx-vlm, mlx-dspark-cli (pipx); nano-pdf (uv); @google/gemini-cli, @continuedev/cli, openclaw, clawhub (npm) |
+| `cli-ai` | summarize, openai-whisper, hf, mlx-lm, gemini-cli (formula); litellm, mlx-vlm, mlx-dspark-cli (pipx); nano-pdf (uv); continue-cli (`@continuedev/cli`), openclaw, clawhub (npm) |
 | `cli-docs` | ghostscript, poppler, tesseract, tesseract-lang (formula) |
 | `cli-macos` | codexbar (`steipete/tap/codexbar`), remindctl (`steipete/tap/remindctl`), spogo (`steipete/tap/spogo`), memo (`antoniorodr/memo/memo`), dutix (`jackchuka/tap/dutix`) (formula) |
 
+Homebrew wherever it has the package (MBC-13): Maccy, WhatsApp and Windows App
+come as casks instead of from the App Store, Claude Code as the `claude-code`
+cask, and gemini-cli, sass, hf, mlx-lm and gopls as formulae. A cask that only
+installs a command is checked with `bin:<command>`; a formula with a check
+command is left alone when that command is already there.
+
 Each cask's `check` app name is taken from its installed bundle and
-double-checked against `brew info --cask`. App Store ids were read from the
-installed apps (`kMDItemAppStoreAdamID`); Maccy's id is checked against the
-App Store when the catalog is written.
+double-checked against `brew info --cask` (pkg-based casks: against the
+installed app). The one App Store id left (MouseBoost Pro) was checked
+against the App Store.
 
 ## Testing
 

@@ -42,6 +42,8 @@ catalog_rows() {
       if (category == "all") { problem("category @all is reserved"); next }
       if (index(sources, " " source " ") == 0) { problem("unknown source: " source); next }
       if (source == "script" && ref !~ /^https:\/\//) { problem("script needs an https:// URL"); next }
+      if (check ~ /^bin:/ && source != "cask") { problem("bin:<command> is for casks only"); next }
+      if (source ~ /^(script|npm|pipx|uv|go)$/ && check == "-") { problem(source " needs a command to check, not -"); next }
       if (source == "mas" && (ref !~ /^[0-9]+$/ || check == "-")) {
         problem("mas needs a numeric App Store id and the app name"); next
       }
@@ -106,9 +108,13 @@ user_bin_dirs_on_path() {
 
 # package_state SOURCE CHECK -> "installed" or "missing"; empty when CHECK is
 # "-" (the source checks itself). Apps by their folder in APPLICATIONS_DIR,
-# everything else as a command on PATH.
+# everything else - and a cask's "bin:<command>" - as a command on PATH.
 package_state() {
   [ "$2" = - ] && { echo; return 0; }
+  case "$2" in
+    bin:*) command -v "${2#bin:}" >/dev/null 2>&1 && echo installed || echo missing
+           return 0 ;;
+  esac
   case "$1" in
     cask | mas | applet | manual) [ -d "$APPLICATIONS_DIR/$2.app" ] ;;
     *) command -v "$2" >/dev/null 2>&1 ;;
@@ -119,7 +125,8 @@ package_state() {
 # taps) and DIR/Brewfile.mas (App Store entries plus mas itself), each only
 # when it has entries. An app already in APPLICATIONS_DIR is left out: brew
 # refuses to install over an app it didn't install, failing the whole bundle.
-# A selected pipx / uv / go package whose command is missing pulls in its
+# So is a formula or cask whose check command is already on PATH, however it
+# was installed (no second copy). A selected pipx / uv / go package whose command is missing pulls in its
 # tool (brew "pipx", "uv", "go") unless that formula is listed already.
 write_brewfiles() {
   local dir="$1" rows id source ref check _category _description tap
@@ -136,8 +143,12 @@ write_brewfiles() {
         continue ;;
       *) continue ;;
     esac
-    if [ "$source" != formula ] && [ "$(package_state "$source" "$check")" = installed ]; then
-      echo "  $id: $check.app already in $APPLICATIONS_DIR - left alone"
+    if [ "$(package_state "$source" "$check")" = installed ]; then
+      case "$source:$check" in
+        *:bin:*) echo "  $id: ${check#bin:} already installed - left alone" ;;
+        formula:*) echo "  $id: $check already installed - left alone" ;;
+        *) echo "  $id: $check.app already in $APPLICATIONS_DIR - left alone" ;;
+      esac
       continue
     fi
     case "$source" in
