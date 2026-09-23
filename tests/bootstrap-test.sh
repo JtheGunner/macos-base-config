@@ -1007,10 +1007,11 @@ assert_contains "$OUT" "Tool: failed: secret keys in export: apiToken - not writ
 [ -e "$AS/tool.json" ] && fail "secret export written"
 [ -f "$AS/alt-tab.plist" ] || fail "AltTab not exported"
 
-it "the shipped registry exports Shottr without its license and token"
+it "the shipped registry exports Shottr without its license, token and device keys"
 app_sandbox
 mkdir -p "$AAPPS/Shottr.app"
 write_alttab "$AH/defaults-store/cc.ffitch.shottr.plist" afterGrabCopy=1 kc-license=L token=T \
+  kc-vault=V uid=U defaultFolderBookmark=B \
   "NSStatusItem VisibleCC Item-0=1" GATelemetry=1 customBackdropColor=red
 run_app_settings export shottr
 assert_eq "$RC" 0
