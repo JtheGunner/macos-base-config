@@ -272,6 +272,40 @@ PACKAGE_CATALOG="$f" write_brewfiles "$d" "" >/dev/null
 [ -e "$d/Brewfile" ] && fail "stale Brewfile kept"
 true
 
+EXTRA_CATALOG_LINES=(
+  'hf        | pipx    | huggingface-hub          | hf        | ai  | Hugging Face CLI'
+  'nano-pdf  | uv      | nano-pdf                 | nano-pdf  | ai  | PDF tool'
+  'gopls     | go      | golang.org/x/tools/gopls | gopls     | dev | Go language server'
+  'sass      | npm     | sass                     | sass      | dev | Sass compiler'
+  'uv        | formula | uv                       | -         | dev | Python package manager'
+  'here      | pipx    | here-pkg                 | sh        | ai  | its command is already on PATH'
+  'filezilla | manual  | https://filezilla-project.org/download.php?type=client | FileZilla | dev | FTP client'
+)
+
+# PATH=/usr/bin:/bin: this Mac may have hf / nano-pdf installed
+it "write_brewfiles adds pipx / uv / go for selected packages that need them"
+f="$(write_catalog "${EXTRA_CATALOG_LINES[@]}")"
+d="$(mktemp -d "$TMP/bf.XXXXXX")"
+PATH=/usr/bin:/bin PACKAGE_CATALOG="$f" write_brewfiles "$d" "hf nano-pdf gopls sass" >/dev/null
+assert_eq "$(cat "$d/Brewfile")" 'brew "pipx"
+brew "uv"
+brew "go"'
+
+it "prerequisites only for missing packages, never twice"
+d="$(mktemp -d "$TMP/bf.XXXXXX")"
+PATH=/usr/bin:/bin PACKAGE_CATALOG="$f" write_brewfiles "$d" "here" >/dev/null
+[ -e "$d/Brewfile" ] && fail "pipx added for an installed package"
+PATH=/usr/bin:/bin PACKAGE_CATALOG="$f" write_brewfiles "$d" "uv nano-pdf" >/dev/null
+assert_eq "$(cat "$d/Brewfile")" 'brew "uv"'
+
+it "manual hints: selected and missing only"
+mkdir -p "$TMP/apps3"
+out="$(APPLICATIONS_DIR="$TMP/apps3" PACKAGE_CATALOG="$f" manual_package_hints "filezilla hf")"
+assert_eq "$out" "  - Install FileZilla by hand (FTP client): https://filezilla-project.org/download.php?type=client"
+assert_eq "$(APPLICATIONS_DIR="$TMP/apps3" PACKAGE_CATALOG="$f" manual_package_hints "hf")" ""
+mkdir -p "$TMP/apps3/FileZilla.app"
+assert_eq "$(APPLICATIONS_DIR="$TMP/apps3" PACKAGE_CATALOG="$f" manual_package_hints "filezilla")" ""
+
 it "missing explicit config is exit 2"
 out="$(load_config "$TMP/missing.sh" 2>&1)"; rc=$?
 assert_eq "$rc" 2
@@ -840,6 +874,18 @@ assert_not_contains "$OUT" "uBar"
 assert_not_contains "$OUT" "PhpStorm"
 assert_not_contains "$OUT" "VoiceOver"
 assert_not_contains "$OUT" "Gatekeeper"
+
+it "manual step names a selected manual package that is missing"
+make_sandbox
+SB_CATALOG="$SB/catalog.txt"
+echo 'filezilla | manual | https://filezilla-project.org/download.php?type=client | FileZilla | dev | FTP client' > "$SB_CATALOG"
+sandbox_config 'PACKAGES="filezilla"'
+run_bootstrap manual
+assert_contains "$OUT" "Install FileZilla by hand (FTP client): https://filezilla-project.org/download.php?type=client"
+mkdir -p "$SB/Applications/FileZilla.app"
+run_bootstrap manual
+SB_CATALOG=""
+assert_not_contains "$OUT" "FileZilla"
 
 it "manual step names the Gatekeeper confirmation only when opted in"
 make_sandbox

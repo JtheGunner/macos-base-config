@@ -398,4 +398,5 @@ step_manual() {
   fi
   echo "  - Sidebar settings: Settings > Expert > Backups > restore the backup the apps step added"
   echo "  - Licenses: enter the AltTab (Pro) and Sidebar keys from your password manager"
+  manual_package_hints "$SELECTED_PACKAGES"
 }
