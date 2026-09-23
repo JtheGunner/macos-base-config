@@ -201,6 +201,12 @@ assert_contains "$out" "$f:6: mas needs a numeric App Store id and the app name"
 assert_contains "$out" "$f:7: invalid id: Upper"
 assert_contains "$out" "$f:8: category @all is reserved"
 
+it "a tab inside a catalog cell is rejected, not read as a column break"
+f="$(write_catalog "$(printf 'chrome | cask | google-chrome | Google\tChrome | web | Web browser')")"
+out="$(PACKAGE_CATALOG="$f" catalog_rows 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "$f:1: tab inside a column"
+
 it "a missing catalog is exit 2"
 out="$(PACKAGE_CATALOG="$TMP/nope.txt" catalog_rows 2>&1)"; rc=$?
 assert_eq "$rc" 2
@@ -1500,6 +1506,11 @@ assert_eq "$PACKAGES" "@base"
 for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP PACKAGES BREW_BUNDLE_EXTRA MACOS_DISABLE_GATEKEEPER DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG DOTFILES_LOCAL_RC; do
   assert_contains "$(cat "$REPO/config.example.sh")" "$key="
 done
+
+it "the PACKAGES example in config.example.sh names real packages"
+example="$(sed -n '/^# --- packages/,/^PACKAGES=/p' "$REPO/config.example.sh" | tr '\n' ' ' | sed -n 's/.*e\.g\. "\([^"]*\)".*/\1/p')"
+[ -n "$example" ] || fail "no PACKAGES example found"
+select_packages "$example" >/dev/null || fail "example does not resolve: $example"
 
 it "the commented example in config.example.sh is a valid DOTFILES_LOCAL_RC"
 example="$(sed -n "/^#   DOTFILES_LOCAL_RC='/,/^#   '\$/s/^#   //p" "$REPO/config.example.sh")"

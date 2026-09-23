@@ -288,8 +288,8 @@ is mandatory**: pick what this Mac gets with `PACKAGES` in the
 |-------------------------------|-------------------------------------------------|
 | *(key not set)*               | `@base`: Karabiner-Elements, AltTab, Sidebar, JetBrains Mono |
 | `""`                          | nothing                                         |
-| `"@base firefox"`             | a category plus one package                     |
-| `"@all -steam -@cli-ai"`      | everything except one package and one category  |
+| `"alt-tab font-jetbrains-mono"` | just these packages                           |
+| `"@all -sidebar"`             | everything except one package (`-@category` removes a whole category) |
 
 The `@base` packages:
 

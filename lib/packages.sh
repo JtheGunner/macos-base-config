@@ -32,6 +32,8 @@ catalog_rows() {
       for (i = 7; i <= NF; i++) description = description "|" $i
       id = trim($1); source = trim($2); ref = trim($3); check = trim($4)
       category = trim($5); description = trim(description)
+      # rows are emitted tab-separated: an inner tab would shift the columns
+      if (index(id source ref check category description, "\t")) { problem("tab inside a column"); next }
       if (id == "" || source == "" || ref == "" || check == "" || category == "" || description == "") {
         problem("empty column"); next
       }

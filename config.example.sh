@@ -16,7 +16,7 @@ BOOTSTRAP_SKIP=""
 
 # What to install from the catalog, packages/catalog.txt (see
 # ./bootstrap.sh --list-packages): package ids, @category or @all; a leading
-# "-" removes one, e.g. "@all -steam -@cli-ai". Nothing is required: ""
+# "-" removes one, e.g. "@base -sidebar". Nothing is required: ""
 # installs nothing. Without this key: "@base" = Karabiner-Elements, AltTab,
 # Sidebar, JetBrains Mono.
 PACKAGES="@base"
