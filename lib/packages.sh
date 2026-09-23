@@ -191,11 +191,15 @@ manual_package_hints() {
 
 # applet_source TEMPLATE -> TEMPLATE with @@NAS_MOUNT_SHARES@@ replaced by the
 # shares as AppleScript list items ("smb://a", "afp://b"). The config check
-# keeps quotes and backslashes out of them. 1 when TEMPLATE can't be read.
+# keeps quotes and backslashes out of them. 1 when TEMPLATE can't be read
+# or has no placeholder.
 applet_source() {
   local template list
   template="$(cat "$1" 2>/dev/null)" || return 1
   list="$(printf '%s\n' "$NAS_MOUNT_SHARES" |
     awk '{ for (i = 1; i <= NF; i++) printf "%s\"%s\"", (n++ ? ", " : ""), $i }')"
-  printf '%s\n' "${template//@@NAS_MOUNT_SHARES@@/$list}"
+  case "$template" in *@@NAS_MOUNT_SHARES@@*) ;; *) return 1 ;; esac
+  # prefix + list + suffix, not ${template//...}: bash 5.2+ would expand an &
+  # in the replacement (patsub_replacement)
+  printf '%s%s%s\n' "${template%%@@NAS_MOUNT_SHARES@@*}" "$list" "${template#*@@NAS_MOUNT_SHARES@@}"
 }

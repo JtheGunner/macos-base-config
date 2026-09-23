@@ -323,6 +323,13 @@ assert_not_contains "$out" "@@"
 out="$(applet_source "$TMP/no-template" 2>&1)"; rc=$?
 assert_eq "$rc" 1
 
+it "applet_source keeps an & in a share, also under the bash on PATH (5.2+ patsub_replacement)"
+for shell in /bin/bash "$(command -v bash)"; do
+  out="$(NAS_MOUNT_SHARES="smb://nas/a&b" HERE="$REPO" "$shell" -c \
+    '. "$HERE/lib/packages.sh"; applet_source "$HERE/packages/nas-mount.applescript"')"
+  assert_contains "$out" '{"smb://nas/a&b"}'
+done
+
 it "missing explicit config is exit 2"
 out="$(load_config "$TMP/missing.sh" 2>&1)"; rc=$?
 assert_eq "$rc" 2
