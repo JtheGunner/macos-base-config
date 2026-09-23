@@ -733,14 +733,14 @@ echo "defaults \$*" >> "$ALOG"
 store="$AH/defaults-store"; mkdir -p "\$store"
 case "\$1" in
   export) if [ -f "\$store/\$2.plist" ]; then cat "\$store/\$2.plist"; else exit 1; fi ;;
-  import) cp "\$3" "\$store/\$2.plist" ;;
+  import) [ -n "\${FAIL_IMPORT:-}" ] && exit 1; cp "\$3" "\$store/\$2.plist" ;;
 esac
 EOF
   cat > "$AB/osascript" <<EOF
 #!/bin/bash
 echo "osascript \$*" >> "$ALOG"
 app="\$(printf '%s' "\$*" | sed -n 's/.*application "\\([^"]*\\)" to quit.*/\\1/p')"
-[ -n "\$app" ] && rm -f "$AH/running-\$app"
+[ -n "\$app" ] && [ -z "\${REFUSE_QUIT:-}" ] && rm -f "$AH/running-\$app"
 exit 0
 EOF
   cat > "$AB/open" <<EOF
@@ -753,7 +753,7 @@ EOF
   chmod +x "$AB"/*
 }
 run_app_settings() {
-  OUT="$(HOME="$AH" PATH="$AB:$PATH" APPLICATIONS_DIR="$AAPPS" python3 "$AD/app_settings.py" "$@" --dir "$AS" 2>&1)"
+  OUT="$(HOME="$AH" PATH="$AB:$PATH" APPLICATIONS_DIR="$AAPPS" APP_QUIT_TIMEOUT=0.5 python3 "$AD/app_settings.py" "$@" --dir "$AS" 2>&1)"
   RC=$?
 }
 # py EXPR... -> run python3 with plistlib, json, sys imported
@@ -814,6 +814,11 @@ assert_contains "$OUT" "registry.txt:4: expected 4 columns: id | kind | where | 
 assert_contains "$OUT" "registry.txt:5: unknown kind: rsync"
 assert_contains "$OUT" "registry.txt:6: duplicate id: ok (first on line 3)"
 assert_contains "$OUT" "registry.txt:7: invalid id: Upper"
+write_registry 'tabby | file | Library/Application Support/tabby/config.yaml | Tabby' \
+  'sidebar | sidebar | ~/Library/Application Support/at.sidebar.Sidebar | Sidebar'
+run_app_settings apply
+assert_eq "$RC" 2
+assert_contains "$OUT" "registry.txt:1: where must be an absolute or ~/ path"
 
 it "apps export keeps AltTab settings, drops runtime and license keys"
 app_sandbox
@@ -900,6 +905,31 @@ assert_eq "$RC" 0
 assert_contains "$(cat "$ALOG")" "defaults import com.lwouis.alt-tab-macos"
 assert_not_contains "$(cat "$ALOG")" "open -a AltTab"
 assert_contains "$OUT" "AltTab: set appearanceTheme"
+
+it "a failed import reopens the app it quit; later apps still apply"
+app_sandbox
+write_registry 'alt-tab | defaults | com.lwouis.alt-tab-macos | AltTab' \
+  'tabby | file | ~/Library/Application Support/tabby/config.yaml | Tabby'
+mkdir -p "$AAPPS/Tabby.app"
+write_alttab "$AS/alt-tab.plist" appearanceTheme=2
+write_alttab "$(alttab_domain)" appearanceTheme=0
+echo new > "$AS/tabby.yaml"
+running_app AltTab
+FAIL_IMPORT=1 run_app_settings apply
+assert_eq "$RC" 1
+assert_contains "$OUT" "AltTab: failed:"
+assert_contains "$(cat "$ALOG")" "open -a AltTab"
+assert_eq "$(cat "$AH/Library/Application Support/tabby/config.yaml")" new
+
+it "an app that does not quit is left alone, nothing imported"
+app_sandbox
+write_alttab "$AS/alt-tab.plist" appearanceTheme=2
+write_alttab "$(alttab_domain)" appearanceTheme=0
+running_app AltTab
+REFUSE_QUIT=1 run_app_settings apply
+assert_eq "$RC" 1
+assert_contains "$OUT" "AltTab: failed: AltTab did not quit - settings left unchanged"
+assert_not_contains "$(cat "$ALOG")" "defaults import"
 
 it "defaults export drops runtime and secret keys of any registry app"
 app_sandbox

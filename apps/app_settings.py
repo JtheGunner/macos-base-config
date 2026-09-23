@@ -67,6 +67,9 @@ def registry_problem(path: Path, number: int, line: str, first_line: dict[str, i
         return f"{where}: invalid id: {entry.id}"
     if entry.kind not in KINDS:
         return f"{where}: unknown kind: {entry.kind}"
+    # apply runs from apps/: a relative path would write private files into this repo
+    if entry.kind in ("file", "sidebar") and not entry.where.startswith(("~/", "/")):
+        return f"{where}: where must be an absolute or ~/ path"
     if entry.id in first_line:
         return f"{where}: duplicate id: {entry.id} (first on line {first_line[entry.id]})"
     return None
@@ -140,6 +143,8 @@ RUNTIME_PREFIXES = ("NSWindow", "NSStatusItem", "NSNavPanel", "NSOSPLast", "NSSp
                     "GATelemetry", "LaunchAtLogin__")
 SECRET_WORDS = ("licen", "token", "serial", "password", "secret")
 LEGACY_NAMES = {"alt-tab": "alttab.plist"}
+# seconds to wait for an app to quit before its settings are changed
+QUIT_TIMEOUT = float(os.environ.get("APP_QUIT_TIMEOUT") or 5)
 
 
 def is_secret_key(key: str) -> bool:
@@ -162,14 +167,25 @@ def settings_file(settings_dir: Path, entry: Entry) -> Path:
     return path
 
 
+class AppStillRunning(Exception):
+    pass
+
+
+def app_running(app: str) -> bool:
+    return subprocess.run(["pgrep", "-x", app], capture_output=True).returncode == 0
+
+
 def quit_app(app: str) -> bool:
-    """quit app if it runs (it writes its settings on exit); True if it ran"""
-    if subprocess.run(["pgrep", "-x", app], capture_output=True).returncode != 0:
+    """quit app if it runs (it writes its settings on exit); True if it ran.
+    An app that doesn't quit in time raises AppStillRunning: changing its
+    settings now would be undone when it writes them back on exit."""
+    if not app_running(app):
         return False
     subprocess.run(["osascript", "-e", f'tell application "{app}" to quit'], capture_output=True)
-    for _ in range(20):
-        if subprocess.run(["pgrep", "-x", app], capture_output=True).returncode != 0:
-            break
+    deadline = time.monotonic() + QUIT_TIMEOUT
+    while app_running(app):
+        if time.monotonic() >= deadline:
+            raise AppStillRunning(f"{app} did not quit - settings left unchanged")
         time.sleep(0.25)
     return True
 
@@ -209,12 +225,14 @@ def apply_defaults(entry: Entry, source: Path, dry_run: bool) -> None:
         print(f"  {entry.app}: would set {', '.join(changed)}")
         return
     was_running = quit_app(entry.app)
-    with tempfile.NamedTemporaryFile(suffix=".plist") as merged:
-        merged.write(plistlib.dumps({**current, **wanted}, fmt=plistlib.FMT_BINARY))
-        merged.flush()
-        subprocess.run(["defaults", "import", entry.where, merged.name], check=True)
-    if was_running:
-        reopen_app(entry.app)
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".plist") as merged:
+            merged.write(plistlib.dumps({**current, **wanted}, fmt=plistlib.FMT_BINARY))
+            merged.flush()
+            subprocess.run(["defaults", "import", entry.where, merged.name], check=True)
+    finally:
+        if was_running:
+            reopen_app(entry.app)
     print(f"  {entry.app}: set {', '.join(changed)}" + (" (restarted)" if was_running else ""))
 
 
@@ -238,12 +256,14 @@ def apply_file(entry: Entry, source: Path, dry_run: bool) -> None:
         print(f"  {entry.app}: would replace {target}")
         return
     was_running = quit_app(entry.app)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists():
-        target.rename(target.with_name(f"{target.name}.bak-{time.strftime('%Y%m%d-%H%M%S')}"))
-    target.write_bytes(data)
-    if was_running:
-        reopen_app(entry.app)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            target.rename(target.with_name(f"{target.name}.bak-{time.strftime('%Y%m%d-%H%M%S')}"))
+        target.write_bytes(data)
+    finally:
+        if was_running:
+            reopen_app(entry.app)
     print(f"  {entry.app}: set {target}" + (" (restarted)" if was_running else ""))
 
 
@@ -360,20 +380,26 @@ def main(argv: list[str] | None = None) -> int:
         print(f"app_settings: {error}", file=sys.stderr)
         return 2
     settings_dir = (args.dir or default_settings_dir()).expanduser()
-    try:
-        if args.command == "export":
+    if args.command == "export":
+        try:
             # a new settings dir is private (700); an existing one is left as it is
             settings_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-            for entry in entries:
+        except OSError as error:
+            print(f"app_settings: {error}", file=sys.stderr)
+            return 1
+    failed = False
+    # one app failing doesn't stop the others
+    for entry in entries:
+        try:
+            if args.command == "export":
                 export_entry(entry, settings_dir)
-        else:
-            for entry in entries:
+            else:
                 apply_entry(entry, settings_dir, args.dry_run)
-    except (OSError, ValueError, KeyError, plistlib.InvalidFileException,
-            subprocess.CalledProcessError) as error:
-        print(f"app_settings: {error}", file=sys.stderr)
-        return 1
-    return 0
+        except (OSError, ValueError, KeyError, AppStillRunning,
+                subprocess.CalledProcessError) as error:
+            print(f"  {entry.app}: failed: {error}", file=sys.stderr)
+            failed = True
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
