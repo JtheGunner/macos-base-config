@@ -772,7 +772,7 @@ plistlib.dump(backup, open(sys.argv[1], "wb"), fmt=plistlib.FMT_BINARY)' "$1"
 write_registry() { printf '%s\n' "$@" > "$AD/registry.txt"; }
 
 it "the shipped app registry parses"
-python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import app_settings as a
+python3 -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import app_settings as a
 print(",".join(e.id for e in a.load_registry(a.REGISTRY_FILE)))' "$REPO/apps" > "$TMP/reg.out" 2>&1
 assert_eq "$?" 0
 assert_contains "$(cat "$TMP/reg.out")" "alt-tab"
