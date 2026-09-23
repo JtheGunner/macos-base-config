@@ -406,6 +406,24 @@ XDG_CONFIG_HOME="$TMP/none" load_config ""
 assert_eq "$PACKAGES" "@base"
 assert_eq "$SELECTED_PACKAGES" "karabiner-elements alt-tab sidebar font-jetbrains-mono"
 
+it "SETTINGS_DIR defaults to the config file's directory"
+XDG_CONFIG_HOME="$TMP/none" load_config ""
+assert_eq "$SETTINGS_DIR" "$TMP/none/macos-base-config"
+f="$(write_config 'BOOTSTRAP_STEPS=""')"
+load_config "$f"
+assert_eq "$SETTINGS_DIR" "$TMP"
+
+it "SETTINGS_DIR: ~ expands; a set dir that doesn't exist is exit 2"
+mkdir -p "$TMP/h/icloud dir"
+f="$(write_config 'SETTINGS_DIR="~/icloud dir"')"
+HOME="$TMP/h" load_config "$f"; rc=$?
+assert_eq "$rc" 0
+assert_eq "$SETTINGS_DIR" "$TMP/h/icloud dir"
+f="$(write_config 'SETTINGS_DIR="~/nope"')"
+out="$(HOME="$TMP/h" load_config "$f" 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "SETTINGS_DIR is not a directory: $TMP/h/nope"
+
 it "an unknown package in the config is exit 2"
 f="$(write_config 'PACKAGES="@base bogus"')"
 out="$(load_config "$f" 2>&1)"; rc=$?
@@ -904,6 +922,7 @@ assert_contains "$(cat "$LOG")" "python3 macos-defaults.py"
 
 it "manual step lists every manual hint"
 make_sandbox
+mkdir -p "$SB/Applications/AltTab.app"
 run_bootstrap manual
 assert_eq "$RC" 0
 assert_contains "$OUT" "Karabiner permissions"
@@ -939,16 +958,45 @@ run_bootstrap --no-pull manual editor vscode
 assert_eq "$(headers)" "== vscode == editor == manual == summary "
 assert_contains "$(cat "$LOG")" "python3 apply.py"
 
-it "apps runs right after editor and applies apps/app_settings.py"
+it "apps runs right after editor and applies the settings dir"
 make_sandbox
+mkdir -p "$SB/home/.config/macos-base-config"
 run_bootstrap --no-pull manual apps editor
 assert_eq "$(headers)" "== editor == apps == manual == summary "
-assert_contains "$(cat "$LOG")" "python3 app_settings.py apply"
+assert_contains "$(cat "$LOG")" "python3 app_settings.py apply --dir $SB/home/.config/macos-base-config"
 
-it "manual step points to the Sidebar backup to restore"
+it "apps skips without a settings dir"
+make_sandbox
+run_bootstrap --no-pull apps
+assert_eq "$RC" 0
+assert_contains "$OUT" "  apps       skipped  (no settings dir: $SB/home/.config/macos-base-config)"
+assert_not_contains "$(cat "$LOG")" "app_settings.py"
+
+it "the settings dir follows --config, spaces included"
+make_sandbox
+mkdir -p "$SB/home/Cloud Docs/mbc"
+echo 'BOOTSTRAP_STEPS=""' > "$SB/home/Cloud Docs/mbc/config.sh"
+run_bootstrap --no-pull --config "$SB/home/Cloud Docs/mbc/config.sh" apps
+assert_eq "$RC" 0
+assert_contains "$(cat "$LOG")" "python3 app_settings.py apply --dir $SB/home/Cloud Docs/mbc"
+
+it "manual step names the Sidebar restore and licenses only for installed apps"
 make_sandbox
 run_bootstrap manual
-assert_contains "$OUT" "Settings > Expert > Backups"
+assert_not_contains "$OUT" "Sidebar settings"
+assert_not_contains "$OUT" "Licenses"
+mkdir -p "$SB/Applications/AltTab.app"
+run_bootstrap manual
+assert_contains "$OUT" "Licenses: enter the AltTab (Pro) key from your password manager"
+assert_not_contains "$OUT" "Sidebar settings"
+mkdir -p "$SB/Applications/Sidebar.app"
+run_bootstrap manual
+assert_contains "$OUT" "Licenses: enter the AltTab (Pro) and Sidebar keys from your password manager"
+assert_not_contains "$OUT" "Sidebar settings"
+sandbox_config 'BOOTSTRAP_STEPS=""'
+touch "$SB/home/.config/macos-base-config/sidebar.sidebarbackup"
+run_bootstrap manual
+assert_contains "$OUT" "Sidebar settings: Settings > Expert > Backups > restore the backup the apps step added"
 
 it "brew runs right after repos"
 make_sandbox
@@ -958,6 +1006,7 @@ assert_eq "$(headers)" "== repos == brew == manual == summary "
 it "dry run hands --dry-run to every sub-tool and runs no git"
 make_sandbox
 with_jetbrains
+mkdir -p "$SB/home/.config/macos-base-config"
 run_bootstrap --dry-run --skip dotfiles
 assert_eq "$RC" 0
 log="$(cat "$LOG")"
@@ -966,7 +1015,7 @@ assert_contains "$log" "python3 macos-defaults.py --dry-run"
 assert_contains "$log" "jetbrains-apply --dry-run"
 assert_contains "$log" "port-vscode --dry-run"
 assert_contains "$log" "python3 apply.py --dry-run"
-assert_contains "$log" "python3 app_settings.py apply --dry-run"
+assert_contains "$log" "python3 app_settings.py apply --dir $SB/home/.config/macos-base-config --dry-run"
 assert_not_contains "$log" "git "
 while IFS= read -r line; do assert_contains "$line" "--dry-run"; done < "$LOG"
 assert_contains "$OUT" "+ git -C $SB/parent/intelli-key-port pull --ff-only"
@@ -1720,7 +1769,8 @@ assert_eq "$DOTFILES_LOCAL_RC" ""
 assert_eq "$BREW_BUNDLE_EXTRA" ""
 assert_eq "$MACOS_DISABLE_GATEKEEPER" 0
 assert_eq "$PACKAGES" "@base"
-for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP PACKAGES BREW_BUNDLE_EXTRA MACOS_DISABLE_GATEKEEPER DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG DOTFILES_LOCAL_RC; do
+assert_eq "$SETTINGS_DIR" "$REPO"
+for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP PACKAGES BREW_BUNDLE_EXTRA MACOS_DISABLE_GATEKEEPER SETTINGS_DIR DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG DOTFILES_LOCAL_RC; do
   assert_contains "$(cat "$REPO/config.example.sh")" "$key="
 done
 
