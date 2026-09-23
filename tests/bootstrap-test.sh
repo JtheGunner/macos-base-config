@@ -500,6 +500,7 @@ stub "$SB/bin/omnishell" omnishell 2
 run_bootstrap --no-pull dotfiles
 assert_eq "$RC" 1
 assert_contains "$OUT" "  dotfiles   failed   (omnishell apply exit 2)"
+assert_not_contains "$OUT" "hint:"
 
 it "omnishell apply exit 1 (degraded modules) only warns"
 make_sandbox
