@@ -55,7 +55,7 @@ the summary at the end (exit code 1), it never aborts the rest.
  ./bootstrap.sh [step ...]
    │
    ├─ repos       clone / pull each sibling repo (repos.txt) into the parent folder
-   ├─ brew        Homebrew (installed if missing) + the Brewfile: Karabiner, AltTab, Sidebar, font
+   ├─ brew        Homebrew (installed if missing) + the selected packages (default: Karabiner, AltTab, Sidebar, font)
    ├─ karabiner   Karabiner config → ~/.config/karabiner   (starts Karabiner once if needed)
    ├─ keyboard    Custom Swiss German layout → ~/Library/Keyboard Layouts, enabled + selected
    ├─ macos       macos-defaults.py: system hotkeys, Finder shortcut, font smoothing (+ Gatekeeper, opt-in)
@@ -83,7 +83,7 @@ step named, every step runs.
 |    | Step        | Runs                                                |
 |:--:|-------------|-----------------------------------------------------|
 | 📥 | `repos`     | clone missing / pull existing sibling repos         |
-| 🍺 | `brew`      | Homebrew installer if missing, `brew bundle`        |
+| 🍺 | `brew`      | Homebrew installer if missing, `brew bundle` of the selected packages |
 | ⌨️  | `karabiner` | `karabiner-windows-keyboard-mapping-macos/apply.sh` |
 | 🇨🇭 | `keyboard`  | layout copy + `enable-input-source.swift`           |
 | 🛠️ | `macos`     | `macos-defaults.py`, Gatekeeper if opted in         |
@@ -104,6 +104,7 @@ clones it itself, so `./bootstrap.sh dotfiles` works on its own.
 | `--no-pull`       | don't update siblings that are already cloned                              |
 | `--config <path>` | use this config file                                                       |
 | `--list`          | list the steps                                                             |
+| `--list-packages` | list the package catalog: what is selected, what is installed             |
 | `-h`, `--help`    | usage                                                                      |
 
 ---
@@ -122,7 +123,8 @@ cp config.example.sh ~/.config/macos-base-config/config.sh
 |-----------------------------|---------------------|------------------------------------------------------------------------------------------------------------------------|
 | `BOOTSTRAP_STEPS`           | all steps           | steps to run when none are named on the command line                                                                   |
 | `BOOTSTRAP_SKIP`            | —                   | steps never to run on this machine                                                                                     |
-| `BREW_BUNDLE_EXTRA`         | —                   | extra Brewfile for this machine's own apps, installed after the repo's `Brewfile`                                      |
+| `PACKAGES`                  | `@base`             | packages to install from the [catalog](#-apps-and-tools): ids, `@category`, `@all`; a leading `-` removes; `""` = none |
+| `BREW_BUNDLE_EXTRA`         | —                   | extra Brewfile for apps outside the catalog, installed after the selected packages                                    |
 | `MACOS_DISABLE_GATEKEEPER`  | `0`                 | `1` = allow apps from anywhere (`sudo spctl --master-disable`); macOS asks you to confirm in Privacy & Security       |
 | `DOTFILES_DIR`              | `<parent>/dotfiles` | dotfiles checkout to use, e.g. an existing `~/Git/dotfiles`                                                            |
 | `DOTFILES_URL`              | URL in `repos.txt`  | clone URL, e.g. a fork                                                                                                 |
@@ -269,27 +271,42 @@ the machine changes.
 
 ---
 
-## 📦 Apps (Homebrew)
+## 📦 Apps and tools
 
-The `brew` step installs [Homebrew](https://brew.sh) if it is missing, then
-everything in the [`Brewfile`](Brewfile):
+Everything the bootstrap can install is listed in the catalog,
+[`packages/catalog.txt`](packages/catalog.txt): one package per line with its
+source (Homebrew formula or cask, App Store, …) and a description. **Nothing
+is mandatory**: pick what this Mac gets with `PACKAGES` in the
+[config](#%EF%B8%8F-configuration).
 
-|    | App                                                     | For                                  |
+```sh
+./bootstrap.sh --list-packages   # the catalog: [x] selected, installed / missing
+./bootstrap.sh brew              # install the selection
+```
+
+| `PACKAGES`                    | Installs                                        |
+|-------------------------------|-------------------------------------------------|
+| *(key not set)*               | `@base`: Karabiner-Elements, AltTab, Sidebar, JetBrains Mono |
+| `""`                          | nothing                                         |
+| `"@base firefox"`             | a category plus one package                     |
+| `"@all -steam -@cli-ai"`      | everything except one package and one category  |
+
+The `@base` packages:
+
+|    | Package                                                 | For                                  |
 |:--:|---------------------------------------------------------|--------------------------------------|
 | ⌨️  | [Karabiner-Elements](https://karabiner-elements.pqrs.org/) | Windows key behaviour (`karabiner` step) |
 | 🔀 | [AltTab](https://alt-tab.app/)                          | Windows-style `Alt+Tab` window switching |
 | 📌 | [Sidebar](https://sidebarapp.net/)                      | Windows-style taskbar, Dock replacement |
 | 🔤 | JetBrains Mono                                          | editor font, see [Fonts](#-fonts)    |
 
-```sh
-./bootstrap.sh brew
-```
-
 - Installed apps are never upgraded by the bootstrap (`--no-upgrade`); they
   update themselves.
-- An app already in `/Applications` that Homebrew didn't install is left alone.
-- Apps only this machine needs go in your own Brewfile: set
-  `BREW_BUNDLE_EXTRA` in the [config](#%EF%B8%8F-configuration).
+- An app already in `/Applications` is left alone, even when Homebrew didn't
+  install it.
+- App Store packages need you signed in to the App Store. Paid apps must
+  already belong to your Apple ID.
+- Apps outside the catalog go in your own Brewfile: set `BREW_BUNDLE_EXTRA`.
 
 ### App settings
 
@@ -317,7 +334,8 @@ python3 apps/app_settings.py export
 
 ## 🔤 Fonts
 
-The `brew` step installs JetBrains Mono. The `editor` step sets the keys from
+The `brew` step installs JetBrains Mono (package `font-jetbrains-mono`, in
+`@base`). The `editor` step sets the keys from
 [`editor-settings/vscode.jsonc`](editor-settings/vscode.jsonc) (font family,
 size, weight) in the `User/settings.json` of every VS Code-family editor it
 finds: VS Code, VS Code Insiders, VSCodium, Cursor, Windsurf, Antigravity,
