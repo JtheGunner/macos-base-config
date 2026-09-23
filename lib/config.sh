@@ -22,11 +22,11 @@ expand_home() {
 
 # load_config [PATH] -> sets BOOTSTRAP_STEPS, BOOTSTRAP_SKIP, BREW_BUNDLE_EXTRA,
 # PACKAGES (+ the resolved SELECTED_PACKAGES), MACOS_DISABLE_GATEKEEPER,
-# SETTINGS_DIR (default: the config file's directory), NAS_MOUNT_SHARES, the
-# DOTFILES_* values, and CONFIG_FILE (the file in use - PATH or the default
-# path, even when that doesn't exist yet). Without PATH the default file is used if it
-# exists. Return 2 on a missing explicit file, a syntax error, or an invalid
-# value.
+# SETTINGS_DIR (default: settings/ next to the config file, else its
+# directory), NAS_MOUNT_SHARES, the DOTFILES_* values, and CONFIG_FILE (the
+# file in use - PATH or the default path, even when that doesn't exist yet).
+# Without PATH the default file is used if it exists. Return 2 on a missing
+# explicit file, a syntax error, or an invalid value.
 load_config() {
   local config_file="${1:-}"
   BOOTSTRAP_STEPS=""; BOOTSTRAP_SKIP=""; BREW_BUNDLE_EXTRA=""
@@ -92,14 +92,17 @@ validate_config() {
     /*) ;;
     *) config_dir="$(cd "$config_dir" 2>/dev/null && pwd)" || config_dir="$PWD/$config_dir" ;;
   esac
+  local settings_explicit=false
   SETTINGS_DIR="$(expand_home "$SETTINGS_DIR")"
   case "$SETTINGS_DIR" in
-    # default: next to the config file - one --config path locates everything private
-    "") SETTINGS_DIR="$config_dir" ;;
-    /*) ;;
-    *) SETTINGS_DIR="$config_dir/$SETTINGS_DIR" ;;
+    # default: settings/ next to the config file (the private config repo's
+    # layout), else the config file's folder itself (the older flat layout) -
+    # one --config path locates everything private
+    "") if [ -d "$config_dir/settings" ]; then SETTINGS_DIR="$config_dir/settings"; else SETTINGS_DIR="$config_dir"; fi ;;
+    /*) settings_explicit=true ;;
+    *) settings_explicit=true; SETTINGS_DIR="$config_dir/$SETTINGS_DIR" ;;
   esac
-  if [ "$SETTINGS_DIR" != "$config_dir" ] && [ ! -d "$SETTINGS_DIR" ]; then
+  if $settings_explicit && [ ! -d "$SETTINGS_DIR" ]; then
     echo "bootstrap.sh: $config_file: SETTINGS_DIR is not a directory: $SETTINGS_DIR" >&2
     return 2
   fi
