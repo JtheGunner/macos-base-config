@@ -1,4 +1,4 @@
-<div style="text-align:center">
+<div style="text-align: center;">
 
 # 🍎 macOS base config
 
@@ -292,10 +292,10 @@ PR; for larger changes, open an issue first.
 
 ## 📄 License
 
-[MIT](LICENSE)
+MIT — see [LICENSE](LICENSE). © 2026 Jeffry Würmli.
 
 ---
 
-<div style="text-align:center">
+<div style="text-align: center;">
 <sub>Windows habits, Mac hardware: one <code>./bootstrap.sh</code> away.</sub>
 </div>
