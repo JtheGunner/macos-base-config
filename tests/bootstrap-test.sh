@@ -80,6 +80,9 @@ parse_args --list; assert_eq "$ACTION" list
 parse_args -h; assert_eq "$ACTION" help
 parse_args --help; assert_eq "$ACTION" help
 
+it "--list-packages sets its action"
+parse_args --list-packages; assert_eq "$ACTION" list-packages
+
 it "unknown option is exit 2 with a message"
 out="$(parse_args --bogus 2>&1)"; rc=$?
 assert_eq "$rc" 2
@@ -99,7 +102,7 @@ done
 
 it "usage lists the options"
 out="$(usage)"
-for o in --skip --dry-run --no-pull --config --list --help; do
+for o in --skip --dry-run --no-pull --config --list --list-packages --help; do
   assert_contains "$out" "$o"
 done
 
@@ -1263,6 +1266,27 @@ assert_contains "$OUT" "+ install Homebrew: /bin/bash -c \"\$(curl -fsSL $INSTAL
 assert_contains "$OUT" '    cask "font-jetbrains-mono"'
 assert_contains "$OUT" "+ brew bundle --file=$SB/tmp/macos-base-config."
 assert_eq "$(cat "$LOG")" ""
+
+it "--list-packages groups by category, marks the selection and what is installed"
+make_sandbox
+mkdir -p "$SB/Applications/AltTab.app"
+sandbox_config 'PACKAGES="alt-tab font-jetbrains-mono"'
+run_bootstrap --list-packages
+assert_eq "$RC" 0
+assert_contains "$OUT" "@base"
+assert_contains "$OUT" "[x] alt-tab                  installed Windows-style Alt+Tab window switching"
+assert_contains "$OUT" "[ ] sidebar                  missing   Windows-style taskbar, Dock replacement"
+assert_contains "$OUT" "[x] font-jetbrains-mono                JetBrains Mono, the editor font (editor step)"
+assert_not_contains "$OUT" "== summary"
+assert_eq "$(cat "$LOG")" ""
+
+it "--list-packages with an invalid PACKAGES is exit 2"
+make_sandbox
+sandbox_config 'PACKAGES="bogus"'
+run_bootstrap --list-packages
+assert_eq "$RC" 2
+assert_contains "$OUT" "unknown package: bogus"
+assert_not_contains "$OUT" "@base"
 
 # --- the dotfiles step ------------------------------------------------------
 # dotfiles_stub [EXIT] -> dotfiles/bootstrap.sh stub that also logs the

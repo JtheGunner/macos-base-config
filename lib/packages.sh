@@ -131,3 +131,19 @@ write_brewfiles() {
   [ -z "$entries" ] || printf '%s%s' "$taps" "$entries" > "$dir/Brewfile"
   [ -z "$store" ] || printf 'brew "mas"\n%s' "$store" > "$dir/Brewfile.mas"
 }
+
+# print_package_list "<selected ids>" -> the catalog under its @category
+# headers: [x] when selected, installed / missing, the description
+print_package_list() {
+  local rows id source _ref check category description current="" mark
+  rows="$(catalog_rows)" || return 2
+  while IFS=$'\t' read -r id source _ref check category description; do
+    [ -n "$id" ] || continue
+    if [ "$category" != "$current" ]; then
+      current="$category"
+      printf '\n@%s\n' "$category"
+    fi
+    case " $1 " in *" $id "*) mark=x ;; *) mark=" " ;; esac
+    printf '  [%s] %-24s %-9s %s\n' "$mark" "$id" "$(package_state "$source" "$check")" "$description"
+  done <<< "$rows"
+}
