@@ -15,8 +15,9 @@
 # without these layers and installs a plain port over the current bindings.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-PROJECTS="$(cd "$HERE/../.." && pwd)"
-PORT="$PROJECTS/intelli-key-port/port.py"
+# intelli-key-port is a sibling of macos-base-config, wherever that was cloned
+PARENT_DIR="$(cd "$HERE/../.." && pwd)"
+PORT="$PARENT_DIR/intelli-key-port/port.py"
 
 [ -f "$PORT" ] || { echo "missing $PORT - run ../bootstrap.sh, it clones intelli-key-port"; exit 1; }
 

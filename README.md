@@ -19,20 +19,39 @@ the few macOS tweaks that go with them.
 
 ## 🚀 Quick start
 
+Clone it into whatever folder you keep your repos in, e.g. `~/code`:
+
 ```sh
-git clone git@github.com:JtheGunner/macos-base-config.git ~/Projects/macos-base-config
-cd ~/Projects/macos-base-config
+cd ~/code                   # any folder works
+git clone git@github.com:JtheGunner/macos-base-config.git
+cd macos-base-config
 ./bootstrap.sh --dry-run    # see what would happen
 ./bootstrap.sh
 ```
 
+> [!NOTE]
+> **Where you clone it does not matter.** `bootstrap.sh` puts the sibling repos
+> **next to this one**, in the same parent folder, and every script finds them
+> there. No path is hard-coded.
+>
+> ```text
+> <your folder>/
+> ├── macos-base-config/                          ← you clone this
+> ├── karabiner-windows-keyboard-mapping-macos/   ← bootstrap.sh clones the rest
+> ├── swiss-windows-keyboard-layout-macos/
+> └── intelli-key-port/
+> ```
+>
+> A sibling that is already there is updated with `git pull --ff-only`
+> instead of cloned again.
+
 `bootstrap.sh` is best-effort and re-runnable: a missing piece prints a note,
-it never aborts the rest. Sibling repos land next to this one in `~/Projects/`.
+it never aborts the rest.
 
 ```text
  ./bootstrap.sh
    │
-   ├─ 1. repos.txt      clone / pull each sibling repo
+   ├─ 1. repos.txt      clone / pull each sibling repo into the parent folder
    │                    karabiner-windows-keyboard-mapping-macos  → ./apply.sh
    │                    swiss-windows-keyboard-layout-macos       → manual (see below)
    │                    intelli-key-port                          → clone only
@@ -45,9 +64,10 @@ it never aborts the rest. Sibling repos land next to this one in `~/Projects/`.
 
 > [!IMPORTANT]
 > `bootstrap.sh` runs Karabiner's `apply.sh`, which expects Karabiner-Elements
-> to be installed. On a fresh Mac run
-> `~/Projects/karabiner-windows-keyboard-mapping-macos/setup.sh` once. It
-> installs Karabiner via Homebrew and walks you through its permissions.
+> to be installed. On a fresh Mac, run `./bootstrap.sh` once so the sibling
+> repos get cloned, then `../karabiner-windows-keyboard-mapping-macos/setup.sh`.
+> It installs Karabiner via Homebrew and walks you through its permissions.
+> Then run `./bootstrap.sh` again.
 
 ---
 
