@@ -13,6 +13,8 @@ PROJECTS="$(cd "$HERE/.." && pwd)"          # ~/Projects
 DRY=false; DRYFLAG=()
 [[ "${1:-}" == "--dry-run" ]] && { DRY=true; DRYFLAG=(--dry-run); }
 # git ops: skipped in dry mode. sub-tools: always run (they get --dry-run).
+# ${DRYFLAG[@]+"${DRYFLAG[@]}"}: a bare "${DRYFLAG[@]}" on the empty array is an
+# unbound-variable error under set -u in macOS's /bin/bash 3.2.
 run() { echo "+ $*"; $DRY || "$@"; }
 step() { echo "+ $*"; "$@"; }
 
@@ -23,7 +25,7 @@ while read -r name url apply _; do
   if [[ -d "$dst/.git" ]]; then run git -C "$dst" pull --ff-only
   else run git -C "$PROJECTS" clone "$url" "$name"; fi
   if [[ -n "${apply:-}" && -x "$dst/${apply#./}" ]]; then
-    ( cd "$dst" && step "$apply" "${DRYFLAG[@]}" )
+    ( cd "$dst" && step "$apply" ${DRYFLAG[@]+"${DRYFLAG[@]}"} )
   elif [[ -f "$dst/README.md" ]]; then
     echo "  -> manual: see $dst/README.md"
   fi
@@ -31,13 +33,13 @@ done < "$HERE/repos.txt"
 
 echo
 echo "== macOS defaults"
-step python3 "$HERE/macos-defaults.py" "${DRYFLAG[@]}"
+step python3 "$HERE/macos-defaults.py" ${DRYFLAG[@]+"${DRYFLAG[@]}"}
 
 echo
 echo "== JetBrains keymap + VS Code family keybindings (if an IDE config is present)"
 if find "$HOME/Library/Application Support/JetBrains" -maxdepth 1 -name 'PhpStorm*' -o -name 'IntelliJIdea*' 2>/dev/null | grep -q .; then
-  ( cd "$HERE/ide-keymaps" && step ./apply.sh "${DRYFLAG[@]}" )
-  ( cd "$HERE/ide-keymaps" && step ./port-vscode.sh "${DRYFLAG[@]}" )
+  ( cd "$HERE/ide-keymaps" && step ./apply.sh ${DRYFLAG[@]+"${DRYFLAG[@]}"} )
+  ( cd "$HERE/ide-keymaps" && step ./port-vscode.sh ${DRYFLAG[@]+"${DRYFLAG[@]}"} )
 else
   echo "  -> no JetBrains IDE config yet; after installing PhpStorm run"
   echo "     ide-keymaps/apply.sh, then ide-keymaps/port-vscode.sh"

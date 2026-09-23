@@ -28,18 +28,22 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SHK_PLIST = Path.home() / "Library/Preferences/com.apple.symbolichotkeys.plist"
-SPACE_HOTKEYS = {79: "Move left a space (Ctrl+Left)",
-                 80: "Move left a space (Ctrl+Shift+Left)",
-                 81: "Move right a space (Ctrl+Right)",
-                 82: "Move right a space (Ctrl+Shift+Right)"}
+# id -> (label, macOS default binding: (char, key code, modifier mask)).
+# The binding is written too when the entry is missing (fresh Mac), since
+# macOS only stores hotkeys that were changed once.
+SPACE_HOTKEYS = {79: ("Move left a space (Ctrl+Left)",         (65535, 123, 262144)),
+                 80: ("Move left a space (Ctrl+Shift+Left)",   (65535, 123, 393216)),
+                 81: ("Move right a space (Ctrl+Right)",       (65535, 124, 262144)),
+                 82: ("Move right a space (Ctrl+Shift+Right)", (65535, 124, 393216))}
 FORWARD_DELETE = ""  # NSDeleteFunctionKey = the "Delete" / Fn+Backspace key
 FINDER_KEYEQ = {"Move to Bin": FORWARD_DELETE, "Move to Trash": FORWARD_DELETE}
 
 _restore: list[str] = []
 
 
-def defaults_read(domain: str, key: str) -> str | None:
-    r = subprocess.run(["defaults", "read", domain, key],
+def defaults_read(domain: str, key: str, current_host: bool = False) -> str | None:
+    host = ["-currentHost"] if current_host else []
+    r = subprocess.run(["defaults", *host, "read", domain, key],
                        capture_output=True, text=True)
     return r.stdout.strip() if r.returncode == 0 else None
 
@@ -54,14 +58,14 @@ def show() -> None:
         print("  (no plist)")
     print("Finder NSUserKeyEquivalents:", defaults_read("com.apple.finder",
                                                         "NSUserKeyEquivalents"))
-    print("AppleFontSmoothing:", defaults_read("-g", "AppleFontSmoothing"))
+    print("AppleFontSmoothing:", defaults_read("-g", "AppleFontSmoothing", current_host=True))
 
 
 def disable_space_hotkeys(dry: bool) -> None:
-    if not SHK_PLIST.is_file():
-        print("symbolic hotkeys: no plist yet - skipping (nothing bound)")
-        return
-    data = plistlib.loads(SHK_PLIST.read_bytes())
+    # A fresh Mac often has no plist yet, but the hotkeys are still active by
+    # default - create the entries rather than skip.
+    existed = SHK_PLIST.is_file()
+    data = plistlib.loads(SHK_PLIST.read_bytes()) if existed else {}
     shk = data.setdefault("AppleSymbolicHotKeys", {})
     to_change = [i for i in SPACE_HOTKEYS
                  if shk.get(str(i), {}).get("enabled", True)]
@@ -69,12 +73,19 @@ def disable_space_hotkeys(dry: bool) -> None:
         print("symbolic hotkeys 79-82: already disabled")
         return
     if dry:
-        print(f"symbolic hotkeys: would disable {to_change}")
+        print(f"symbolic hotkeys: would disable {to_change}"
+              + ("" if existed else f"  (would create {SHK_PLIST.name})"))
         return
-    bak = _backup(SHK_PLIST)
-    _restore.append(f'cp "{bak}" "{SHK_PLIST}"')
+    if existed:
+        bak = _backup(SHK_PLIST)
+        _restore.append(f'cp "{bak}" "{SHK_PLIST}"')
+    else:
+        _restore.append(f'rm -f "{SHK_PLIST}"')
     for i in to_change:
-        shk.setdefault(str(i), {})["enabled"] = False
+        entry = shk.setdefault(str(i), {})
+        entry["enabled"] = False
+        entry.setdefault("value", {"type": "standard",
+                                   "parameters": list(SPACE_HOTKEYS[i][1])})
     SHK_PLIST.write_bytes(plistlib.dumps(data, fmt=plistlib.FMT_BINARY))
     print(f"symbolic hotkeys: disabled {to_change}  (log out / log in to take effect)")
 
@@ -103,7 +114,8 @@ def set_finder_keyequiv(dry: bool) -> None:
 
 
 def set_font_smoothing(dry: bool) -> None:
-    if defaults_read("-g", "AppleFontSmoothing") == "1":
+    # written with -currentHost below, so it must be read from there too
+    if defaults_read("-g", "AppleFontSmoothing", current_host=True) == "1":
         print("AppleFontSmoothing: already 1")
         return
     if dry:
