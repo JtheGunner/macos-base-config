@@ -17,6 +17,13 @@ DRY=false; [[ "${1:-}" == "--dry-run" ]] && DRY=true
 
 [ -f "$HERE/$FILE" ] || { echo "missing $HERE/$FILE - run ./sync.sh once"; exit 1; }
 
+# A running IDE rewrites its keymap files on exit, and a keymap edited in the IDE
+# but not yet pulled with ./sync.sh would be overwritten by the tracked copy.
+if ! $DRY && pgrep -f '/(PhpStorm|IntelliJ IDEA)[^/]*\.app/Contents/MacOS/' >/dev/null; then
+  echo "a JetBrains IDE is running - quit it first (and run ./sync.sh if you changed the keymap)"
+  exit 1
+fi
+
 found=0
 while IFS= read -r cfg; do
   found=1
