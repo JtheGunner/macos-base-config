@@ -1,56 +1,76 @@
 #!/usr/bin/env bash
-# Set up a fresh Mac's keyboard / desktop behaviour.
+# Set up a fresh Mac: keyboard layout, Karabiner, macOS defaults, IDE keymaps
+# and the dotfiles (shell, git, tmux, Ghostty).
 #
-#   ./bootstrap.sh              clone/pull the sibling repos, apply everything
-#   ./bootstrap.sh --dry-run    show what would happen
+#   ./bootstrap.sh                   run every step
+#   ./bootstrap.sh keymaps dotfiles  run only these steps
+#   ./bootstrap.sh --skip dotfiles   run every step but these
+#   ./bootstrap.sh --dry-run         show what would happen
+#   ./bootstrap.sh --help            all options; --list for the steps
 #
-# Each step is best-effort: a missing piece prints a note, it does not abort
-# the rest. Re-runnable.
+# Per-machine settings: ~/.config/macos-base-config/config.sh (see
+# config.example.sh). Each step is best-effort: a failing step is reported in
+# the summary, it doesn't abort the rest. Re-runnable.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # sibling repos live next to this one, wherever it was cloned
 PARENT_DIR="$(cd "$HERE/.." && pwd)"
-DRY=false; DRYFLAG=()
-[[ "${1:-}" == "--dry-run" ]] && { DRY=true; DRYFLAG=(--dry-run); }
-# git ops: skipped in dry mode. sub-tools: always run (they get --dry-run).
-# ${DRYFLAG[@]+"${DRYFLAG[@]}"}: a bare "${DRYFLAG[@]}" on the empty array is an
-# unbound-variable error under set -u in macOS's /bin/bash 3.2.
-run() { echo "+ $*"; $DRY || "$@"; }
-step() { echo "+ $*"; "$@"; }
 
-echo "== sibling repos (into $PARENT_DIR)"
-while read -r name url apply _; do
-  [[ -z "${name:-}" || "$name" == \#* ]] && continue
-  dst="$PARENT_DIR/$name"
-  if [[ -d "$dst/.git" ]]; then run git -C "$dst" pull --ff-only
-  else run git -C "$PARENT_DIR" clone "$url" "$name"; fi
-  if [[ -n "${apply:-}" && -x "$dst/${apply#./}" ]]; then
-    ( cd "$dst" && step "$apply" ${DRYFLAG[@]+"${DRYFLAG[@]}"} )
-  elif [[ -f "$dst/README.md" ]]; then
-    echo "  -> manual: see $dst/README.md"
-  fi
-done < "$HERE/repos.txt"
+. "$HERE/lib/cli.sh"
+. "$HERE/lib/config.sh"
+. "$HERE/lib/steps.sh"
 
-echo
-echo "== macOS defaults"
-step python3 "$HERE/macos-defaults.py" ${DRYFLAG[@]+"${DRYFLAG[@]}"}
+parse_args "$@" || exit 2
+case "$ACTION" in
+  help) usage; exit 0 ;;
+  list) print_step_list; exit 0 ;;
+esac
+load_config "$CONFIG_PATH" || exit 2
 
-echo
-echo "== JetBrains keymap + VS Code family keybindings (if an IDE config is present)"
-if find "$HOME/Library/Application Support/JetBrains" -maxdepth 1 -name 'PhpStorm*' -o -name 'IntelliJIdea*' 2>/dev/null | grep -q .; then
-  ( cd "$HERE/ide-keymaps" && step ./apply.sh ${DRYFLAG[@]+"${DRYFLAG[@]}"} )
-  ( cd "$HERE/ide-keymaps" && step ./port-vscode.sh ${DRYFLAG[@]+"${DRYFLAG[@]}"} )
-else
-  echo "  -> no JetBrains IDE config yet; after installing PhpStorm run"
-  echo "     ide-keymaps/apply.sh, then ide-keymaps/port-vscode.sh"
+# command-line steps replace the configured default; --skip adds to the config's
+SELECTED="$(select_steps "${CLI_STEPS:-$BOOTSTRAP_STEPS}" "$BOOTSTRAP_SKIP $CLI_SKIP")" || exit 2
+if [ -z "$SELECTED" ]; then
+  echo "nothing to do (every step skipped)"
+  exit 0
 fi
 
+SUMMARY=""
+ANY_FAILED=false
+
+# record STEP STATUS [REASON] -> one summary line
+record() {
+  local line
+  if [ -n "${3:-}" ]; then
+    line="$(printf '  %-10s %-8s (%s)' "$1" "$2" "$3")"
+  else
+    line="$(printf '  %-10s %s' "$1" "$2")"
+  fi
+  SUMMARY="$SUMMARY$line"$'\n'
+}
+
+for step in $SELECTED; do
+  echo
+  echo "== $step: $(step_description "$step")"
+  STEP_SKIP_REASON=""
+  STEP_FAIL_REASON=""
+  if "step_$step"; then
+    if [ -n "$STEP_SKIP_REASON" ]; then
+      echo "  -> skipped: $STEP_SKIP_REASON"
+      record "$step" skipped "$STEP_SKIP_REASON"
+    else
+      record "$step" ok
+    fi
+  else
+    rc=$?
+    ANY_FAILED=true
+    record "$step" failed "${STEP_FAIL_REASON:-exit $rc}"
+  fi
+done
+
 echo
-echo "== manual, not scriptable"
-echo "  - Karabiner permissions: karabiner-windows-keyboard-mapping-macos/setup.sh prints them"
-echo "  - Swiss keyboard layout: swiss-windows-keyboard-layout-macos/README.md"
-echo "  - PhpStorm: Settings > Tools > Terminal > 'Use Option as Meta key' off (AltGr in the console)"
-echo "  - see README.md 'Manual steps' (VoiceOver off, Gatekeeper, AltTab, uBar)"
-echo "  - machine-local shell aliases (kdash-token): README.md 'Machine-local shell aliases'"
-$DRY && echo $'\n(dry run)'
+echo "== summary"
+printf '%s' "$SUMMARY"
+$DRY_RUN && echo $'\n(dry run)'
+$ANY_FAILED && exit 1
+exit 0
