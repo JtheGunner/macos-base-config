@@ -20,8 +20,10 @@ expand_home() {
 }
 
 # load_config [PATH] -> sets BOOTSTRAP_STEPS, BOOTSTRAP_SKIP and the DOTFILES_*
-# values. Without PATH the default file is used if it exists. Return 2 on a
-# missing explicit file, a syntax error, or an invalid value.
+# values, and CONFIG_FILE (the file in use - PATH or the default path, even
+# when that doesn't exist yet). Without PATH the default file is used if it
+# exists. Return 2 on a missing explicit file, a syntax error, or an invalid
+# value.
 load_config() {
   local config_file="${1:-}"
   BOOTSTRAP_STEPS=""; BOOTSTRAP_SKIP=""
@@ -32,8 +34,9 @@ load_config() {
     [ -f "$config_file" ] || { echo "bootstrap.sh: config file not found: $config_file" >&2; return 2; }
   else
     config_file="$(default_config_path)"
-    [ -f "$config_file" ] || return 0
   fi
+  CONFIG_FILE="$config_file"
+  [ -f "$config_file" ] || return 0
   # bash 3.2's -n can exit 0 on a syntax error, so any message counts as one
   local syntax_errors
   if ! syntax_errors="$("$BASH" -n "$config_file" 2>&1)" || [ -n "$syntax_errors" ]; then

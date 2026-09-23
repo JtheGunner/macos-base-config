@@ -127,6 +127,12 @@ echo 'BOOTSTRAP_STEPS="manual"' > "$TMP/xdg/macos-base-config/config.sh"
 XDG_CONFIG_HOME="$TMP/xdg" load_config ""
 assert_eq "$BOOTSTRAP_STEPS" manual
 
+it "load_config records the config file in use, even when absent"
+XDG_CONFIG_HOME="$TMP/none" load_config ""
+assert_eq "$CONFIG_FILE" "$TMP/none/macos-base-config/config.sh"
+XDG_CONFIG_HOME="$TMP/xdg" load_config ""
+assert_eq "$CONFIG_FILE" "$TMP/xdg/macos-base-config/config.sh"
+
 it "a later load resets earlier values"
 XDG_CONFIG_HOME="$TMP/none" load_config ""
 assert_eq "$BOOTSTRAP_STEPS" ""
@@ -436,6 +442,37 @@ assert_eq "$RC" 1
 assert_contains "$OUT" "  dotfiles   failed   (exit 1)"
 assert_contains "$OUT" "  manual     ok"
 
+it "a failing dotfiles bootstrap explains the checkout prompt"
+make_sandbox
+dotfiles_stub 1
+run_bootstrap --no-pull dotfiles
+assert_eq "$RC" 1
+assert_contains "$OUT" "hint: if it stopped at \"repoint every stow link"
+assert_contains "$OUT" "set DOTFILES_ASSUME_YES=1 in $SB/home/.config/macos-base-config/config.sh"
+assert_contains "$OUT" "set DOTFILES_DIR in $SB/home/.config/macos-base-config/config.sh to the checkout the links already use"
+assert_contains "$OUT" "  dotfiles   failed   (exit 1)"
+
+it "the hint names --config's file and skips ASSUME_YES when already set"
+make_sandbox
+dotfiles_stub 1
+printf 'DOTFILES_ASSUME_YES=1\n' > "$SB/own.sh"
+run_bootstrap --no-pull --config "$SB/own.sh" dotfiles
+assert_eq "$RC" 1
+assert_contains "$OUT" "to the checkout the links already use"
+assert_contains "$OUT" "$SB/own.sh"
+assert_not_contains "$OUT" "set DOTFILES_ASSUME_YES=1"
+
+it "no checkout hint when the dotfiles step succeeds or runs dry"
+make_sandbox
+dotfiles_stub
+run_bootstrap --no-pull dotfiles
+assert_eq "$RC" 0
+assert_not_contains "$OUT" "hint:"
+dotfiles_stub 1
+run_bootstrap --dry-run --no-pull dotfiles
+assert_eq "$RC" 0
+assert_not_contains "$OUT" "hint:"
+
 it "dotfiles without Homebrew fails with a hint"
 make_sandbox
 rm "$SB/bin/brew"
@@ -443,6 +480,7 @@ run_bootstrap --no-pull dotfiles
 assert_eq "$RC" 1
 assert_contains "$OUT" "Homebrew required"
 assert_eq "$(cat "$LOG")" ""
+assert_not_contains "$OUT" "hint:"
 
 it "own omnishell config is copied after the dotfiles run, then applied"
 make_sandbox
@@ -462,6 +500,7 @@ stub "$SB/bin/omnishell" omnishell 2
 run_bootstrap --no-pull dotfiles
 assert_eq "$RC" 1
 assert_contains "$OUT" "  dotfiles   failed   (omnishell apply exit 2)"
+assert_not_contains "$OUT" "hint:"
 
 it "omnishell apply exit 1 (degraded modules) only warns"
 make_sandbox

@@ -129,7 +129,9 @@ stops the bootstrap before any step runs.
 > [!TIP]
 > Already have the dotfiles checked out somewhere else? Set `DOTFILES_DIR` to
 > that checkout. Otherwise, the dotfiles bootstrap asks whether to repoint every
-> stow link to the new `<parent>/dotfiles` clone.
+> stow link to the new `<parent>/dotfiles` clone. If you decline, or there is no
+> terminal to ask, the `dotfiles` step fails and names both ways out:
+> `DOTFILES_ASSUME_YES=1` (repoint without asking) or `DOTFILES_DIR`.
 
 ---
 
