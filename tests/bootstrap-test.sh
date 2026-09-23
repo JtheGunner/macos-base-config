@@ -6,7 +6,8 @@
 #
 # End-to-end cases run bootstrap.sh inside a throwaway sandbox: a copy of the
 # scripts next to stub sibling repos, a fake HOME, and stub tools (git, brew,
-# python3, omnishell, curl, open) that only log their arguments.
+# python3, omnishell, curl, open, swift, sudo, spctl) that only log their
+# arguments.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -27,13 +28,13 @@ assert_not_contains() {
 . "$REPO/lib/cli.sh"
 
 it "no steps selects every step in order"
-assert_eq "$(select_steps "" "")" "repos brew karabiner macos jetbrains vscode dotfiles manual"
+assert_eq "$(select_steps "" "")" "repos brew karabiner keyboard macos jetbrains vscode dotfiles manual"
 
 it "steps run in table order, aliases expand"
 assert_eq "$(select_steps "dotfiles keymaps" "")" "jetbrains vscode dotfiles"
 
 it "skip removes steps, aliases included"
-assert_eq "$(select_steps "" "keymaps dotfiles")" "repos brew karabiner macos manual"
+assert_eq "$(select_steps "" "keymaps dotfiles")" "repos brew karabiner keyboard macos manual"
 
 it "duplicates collapse"
 assert_eq "$(select_steps "macos macos keymaps jetbrains" "")" "macos jetbrains vscode"
@@ -46,7 +47,7 @@ assert_eq "$(select_steps "keymaps
 dotfiles" "")" "jetbrains vscode dotfiles"
 assert_eq "$(select_steps "" "
   dotfiles
-")" "repos brew karabiner macos jetbrains vscode manual"
+")" "repos brew karabiner keyboard macos jetbrains vscode manual"
 assert_eq "$(select_steps "$(printf 'macos\tmanual')" "")" "macos manual"
 
 it "unknown step is exit 2 with a message"
@@ -92,7 +93,7 @@ assert_eq "$rc" 2
 
 it "step list names every step and the alias"
 out="$(print_step_list)"
-for s in repos brew karabiner macos jetbrains vscode dotfiles manual keymaps; do
+for s in repos brew karabiner keyboard macos jetbrains vscode dotfiles manual keymaps; do
   assert_contains "$out" "$s"
 done
 
@@ -201,6 +202,18 @@ HOME="$TMP/home" load_config "$f"; rc=$?
 assert_eq "$rc" 0
 assert_eq "$BREW_BUNDLE_EXTRA" "$TMP/home/Brewfile.local"
 
+it "MACOS_DISABLE_GATEKEEPER must be 0 or 1, default 0"
+XDG_CONFIG_HOME="$TMP/none" load_config ""
+assert_eq "$MACOS_DISABLE_GATEKEEPER" 0
+f="$(write_config 'MACOS_DISABLE_GATEKEEPER=yes')"
+out="$(load_config "$f" 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "MACOS_DISABLE_GATEKEEPER must be 0 or 1"
+f="$(write_config 'MACOS_DISABLE_GATEKEEPER=1')"
+load_config "$f"; rc=$?
+assert_eq "$rc" 0
+assert_eq "$MACOS_DISABLE_GATEKEEPER" 1
+
 it "DOTFILES_LOCAL_RC defaults to empty and loads several lines"
 XDG_CONFIG_HOME="$TMP/none" load_config ""
 assert_eq "$DOTFILES_LOCAL_RC" ""
@@ -218,6 +231,63 @@ out="$(load_config "$f" 2>&1)"; rc=$?
 assert_eq "$rc" 2
 assert_contains "$out" "DOTFILES_LOCAL_RC has a syntax error"
 
+# --- macos-defaults.py ------------------------------------------------------
+it "macos-defaults.py dry run disables the VoiceOver and space hotkeys"
+mkdir -p "$TMP/fresh-home"
+out="$(HOME="$TMP/fresh-home" python3 "$REPO/macos-defaults.py" --dry-run 2>&1)"; rc=$?
+assert_eq "$rc" 0
+assert_contains "$out" "symbolic hotkeys: would disable [59, 79, 80, 81, 82]"
+[ -e "$TMP/fresh-home/Library/Preferences/com.apple.symbolichotkeys.plist" ] && fail "written in dry run"
+
+# --- ide-keymaps/set-terminal-option.py -------------------------------------
+TERMINAL_OPTION="$REPO/ide-keymaps/set-terminal-option.py"
+
+it "set-terminal-option creates a missing terminal.xml"
+f="$TMP/opt1/terminal.xml"
+out="$(python3 "$TERMINAL_OPTION" "$f" useOptionAsMetaKey false 2>&1)"; rc=$?
+assert_eq "$rc" 0
+assert_contains "$(cat "$f")" '<component name="TerminalOptionsProvider">'
+assert_contains "$(cat "$f")" '<option name="useOptionAsMetaKey" value="false" />'
+assert_eq "$(ls "$TMP/opt1" | grep -c bak)" 0
+
+it "set-terminal-option flips the value, keeps other options, backs up"
+mkdir -p "$TMP/opt2"
+f="$TMP/opt2/terminal.xml"
+cat > "$f" <<'XML'
+<application>
+  <component name="TerminalOptionsProvider">
+    <option name="shellPath" value="/bin/zsh" />
+    <option name="useOptionAsMetaKey" value="true" />
+  </component>
+</application>
+XML
+out="$(python3 "$TERMINAL_OPTION" "$f" useOptionAsMetaKey false 2>&1)"; rc=$?
+assert_eq "$rc" 0
+assert_contains "$(cat "$f")" '<option name="useOptionAsMetaKey" value="false" />'
+assert_contains "$(cat "$f")" '<option name="shellPath" value="/bin/zsh" />'
+assert_not_contains "$(cat "$f")" 'value="true"'
+assert_eq "$(ls "$TMP/opt2" | grep -c 'terminal.xml.bak-')" 1
+
+it "set-terminal-option leaves a file that is already right alone"
+before="$(cat "$f")"
+out="$(python3 "$TERMINAL_OPTION" "$f" useOptionAsMetaKey false 2>&1)"; rc=$?
+assert_eq "$rc" 0
+assert_contains "$out" "already"
+assert_eq "$(cat "$f")" "$before"
+assert_eq "$(ls "$TMP/opt2" | grep -c 'terminal.xml.bak-')" 1
+
+it "set-terminal-option dry run changes nothing"
+mkdir -p "$TMP/opt3"
+f="$TMP/opt3/terminal.xml"
+printf '<application>\n</application>\n' > "$f"
+out="$(python3 "$TERMINAL_OPTION" "$f" useOptionAsMetaKey false --dry-run 2>&1)"; rc=$?
+assert_eq "$rc" 0
+assert_contains "$out" "would set useOptionAsMetaKey=false"
+assert_eq "$(cat "$f")" "<application>
+</application>"
+python3 "$TERMINAL_OPTION" "$TMP/opt4/terminal.xml" useOptionAsMetaKey false --dry-run >/dev/null
+[ -e "$TMP/opt4" ] && fail "created in dry run"
+
 # --- end to end: bootstrap.sh in a sandbox ----------------------------------
 # stub PATH LABEL [EXIT] -> executable that appends "LABEL <args>" to $LOG
 stub() {
@@ -232,6 +302,13 @@ stub_sibling() {
   if [ -n "${2:-}" ]; then stub "$SB/parent/$1/$2" "$1/$2" "${3:-0}"; fi
 }
 
+# spctl_stub STATUS -> spctl that logs itself and prints STATUS for --status
+spctl_stub() {
+  printf '#!/bin/bash\necho "spctl $*" >> "%s"\n[ "$1" = --status ] && echo "%s"\nexit 0\n' \
+    "$LOG" "$1" > "$SB/bin/spctl"
+  chmod +x "$SB/bin/spctl"
+}
+
 # make_sandbox -> fresh sandbox; sets SB (root), APP (the repo copy), LOG
 make_sandbox() {
   SB="$(mktemp -d "$TMP/sb.XXXXXX")"
@@ -243,8 +320,12 @@ make_sandbox() {
   stub "$APP/ide-keymaps/apply.sh" jetbrains-apply
   stub "$APP/ide-keymaps/port-vscode.sh" port-vscode
   local tool
-  for tool in git brew python3 omnishell curl open; do stub "$SB/bin/$tool" "$tool"; done
+  for tool in git brew python3 omnishell curl open swift sudo; do stub "$SB/bin/$tool" "$tool"; done
+  spctl_stub "assessments enabled"
   stub_sibling swiss-windows-keyboard-layout-macos
+  echo layout > "$SB/parent/swiss-windows-keyboard-layout-macos/CustomSwissGerman.keylayout"
+  echo icon > "$SB/parent/swiss-windows-keyboard-layout-macos/CustomSwissGerman.icns"
+  mkdir -p "$SB/system-layouts"
   stub_sibling karabiner-windows-keyboard-mapping-macos apply.sh
   stub_sibling intelli-key-port
   stub_sibling dotfiles bootstrap.sh
@@ -263,6 +344,7 @@ run_bootstrap() {
   OUT="$(env -u XDG_CONFIG_HOME -u DOTFILES_TERMINALS HOME="$SB/home" \
     PATH="$SB/bin:/usr/bin:/bin" KARABINER_APP="$SB/Karabiner-Elements.app" \
     BREW_CANDIDATES="$SB/homebrew/bin/brew" KARABINER_WAIT_SECONDS=0 \
+    KEYBOARD_SYSTEM_DIR="$SB/system-layouts" SWIFT="${SWIFT_BIN:-$SB/bin/swift}" \
     /bin/bash "$APP/bootstrap.sh" "$@" 2>&1 </dev/null)"
   RC=$?
 }
@@ -306,8 +388,19 @@ make_sandbox
 run_bootstrap manual
 assert_eq "$RC" 0
 assert_contains "$OUT" "Karabiner permissions"
+assert_contains "$OUT" "Input source"
+assert_contains "$OUT" "password manager"
 assert_not_contains "$OUT" "kdash-token"
 assert_not_contains "$OUT" "uBar"
+assert_not_contains "$OUT" "PhpStorm"
+assert_not_contains "$OUT" "VoiceOver"
+assert_not_contains "$OUT" "Gatekeeper"
+
+it "manual step names the Gatekeeper confirmation only when opted in"
+make_sandbox
+sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
+run_bootstrap manual
+assert_contains "$OUT" "Gatekeeper"
 
 it "brew runs right after repos"
 make_sandbox
@@ -452,6 +545,117 @@ sandbox_config 'BOOTSTRAP_STEPS="bogus"'
 run_bootstrap
 assert_eq "$RC" 2
 assert_eq "$(cat "$LOG")" ""
+
+# --- the keyboard step ------------------------------------------------------
+USER_LAYOUTS_REL="home/Library/Keyboard Layouts"
+
+it "keyboard copies a missing layout to ~/Library and enables it"
+make_sandbox
+run_bootstrap --no-pull keyboard
+assert_eq "$RC" 0
+assert_eq "$(cat "$SB/$USER_LAYOUTS_REL/CustomSwissGerman.keylayout")" layout
+assert_eq "$(cat "$SB/$USER_LAYOUTS_REL/CustomSwissGerman.icns")" icon
+assert_eq "$(cat "$LOG")" "swift $APP/enable-input-source.swift $SB/$USER_LAYOUTS_REL/CustomSwissGerman.keylayout Custom Swiss German"
+assert_contains "$OUT" "  keyboard   ok"
+
+it "keyboard leaves an identical layout in ~/Library alone"
+make_sandbox
+mkdir -p "$SB/$USER_LAYOUTS_REL"
+echo layout > "$SB/$USER_LAYOUTS_REL/CustomSwissGerman.keylayout"
+run_bootstrap --no-pull keyboard
+assert_eq "$RC" 0
+assert_contains "$OUT" "already installed"
+assert_not_contains "$OUT" "+ cp "
+assert_contains "$(cat "$LOG")" "swift $APP/enable-input-source.swift $SB/$USER_LAYOUTS_REL/CustomSwissGerman.keylayout"
+
+it "keyboard uses an identical layout in /Library, no second copy"
+make_sandbox
+echo layout > "$SB/system-layouts/CustomSwissGerman.keylayout"
+run_bootstrap --no-pull keyboard
+assert_eq "$RC" 0
+[ -e "$SB/$USER_LAYOUTS_REL/CustomSwissGerman.keylayout" ] && fail "copied next to the /Library one"
+assert_contains "$(cat "$LOG")" "swift $APP/enable-input-source.swift $SB/system-layouts/CustomSwissGerman.keylayout"
+
+it "keyboard treats a copy that differs only in XML comments as identical"
+make_sandbox
+printf '<!--\n\tGenerated by Ukelele\n-->\nlayout\n' > "$SB/system-layouts/CustomSwissGerman.keylayout"
+run_bootstrap --no-pull keyboard
+assert_eq "$RC" 0
+assert_contains "$OUT" "layout already installed: $SB/system-layouts/CustomSwissGerman.keylayout"
+
+it "keyboard skips with a sudo hint when /Library holds another version"
+make_sandbox
+echo old > "$SB/system-layouts/CustomSwissGerman.keylayout"
+run_bootstrap --no-pull keyboard
+assert_eq "$RC" 0
+assert_contains "$OUT" "  keyboard   skipped  (an older Custom Swiss German is in $SB/system-layouts"
+assert_contains "$OUT" "sudo cp"
+assert_eq "$(cat "$LOG")" ""
+
+it "keyboard dry run copies and enables nothing"
+make_sandbox
+run_bootstrap --dry-run --no-pull keyboard
+assert_eq "$RC" 0
+assert_contains "$OUT" "+ cp "
+assert_contains "$OUT" "+ $SB/bin/swift $APP/enable-input-source.swift"
+[ -e "$SB/$USER_LAYOUTS_REL" ] && fail "copied in dry run"
+assert_eq "$(cat "$LOG")" ""
+
+it "keyboard without swift installs the layout, skips enabling with a hint"
+make_sandbox
+SWIFT_BIN="$SB/no-swift" run_bootstrap --no-pull keyboard
+assert_eq "$RC" 0
+[ -e "$SB/$USER_LAYOUTS_REL/CustomSwissGerman.keylayout" ] || fail "layout not copied"
+assert_contains "$OUT" "  keyboard   skipped  (enable 'Custom Swiss German' under System Settings > Keyboard > Input Sources, then log out"
+
+it "keyboard skips with the same hint when enabling fails"
+make_sandbox
+stub "$SB/bin/swift" swift 1
+run_bootstrap --no-pull keyboard
+assert_eq "$RC" 0
+assert_contains "$OUT" "  keyboard   skipped  (enable 'Custom Swiss German' under System Settings"
+
+# --- Gatekeeper (macos step) ------------------------------------------------
+it "Gatekeeper is left alone by default"
+make_sandbox
+run_bootstrap --no-pull macos
+assert_eq "$RC" 0
+assert_eq "$(cat "$LOG")" "python3 macos-defaults.py"
+
+it "MACOS_DISABLE_GATEKEEPER=1 disables it and opens the confirmation pane"
+make_sandbox
+sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
+run_bootstrap --no-pull macos
+assert_eq "$RC" 0
+assert_eq "$(cat "$LOG")" "python3 macos-defaults.py
+spctl --status
+sudo spctl --master-disable
+open x-apple.systempreferences:com.apple.preference.security?General"
+
+it "Gatekeeper that is already off is not touched"
+make_sandbox
+spctl_stub "assessments disabled"
+sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
+run_bootstrap --no-pull macos
+assert_eq "$RC" 0
+assert_contains "$OUT" "Gatekeeper: already off"
+assert_not_contains "$(cat "$LOG")" "sudo"
+
+it "a failing sudo spctl fails the macos step"
+make_sandbox
+stub "$SB/bin/sudo" sudo 1
+sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
+run_bootstrap --no-pull macos
+assert_eq "$RC" 1
+assert_contains "$OUT" "  macos      failed   (Gatekeeper)"
+
+it "Gatekeeper dry run only shows the commands"
+make_sandbox
+sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
+run_bootstrap --dry-run --no-pull macos
+assert_eq "$RC" 0
+assert_contains "$OUT" "+ sudo spctl --master-disable"
+assert_not_contains "$(cat "$LOG")" "sudo"
 
 # --- the brew step ----------------------------------------------------------
 INSTALLER_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
@@ -735,7 +939,8 @@ assert_eq "$rc" 0
 assert_eq "$BOOTSTRAP_STEPS|$BOOTSTRAP_SKIP|$DOTFILES_DIR|$DOTFILES_URL|$DOTFILES_ASSUME_YES|$DOTFILES_TERMINALS|$DOTFILES_OMNISHELL_CONFIG" "||||0||"
 assert_eq "$DOTFILES_LOCAL_RC" ""
 assert_eq "$BREW_BUNDLE_EXTRA" ""
-for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP BREW_BUNDLE_EXTRA DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG DOTFILES_LOCAL_RC; do
+assert_eq "$MACOS_DISABLE_GATEKEEPER" 0
+for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP BREW_BUNDLE_EXTRA MACOS_DISABLE_GATEKEEPER DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG DOTFILES_LOCAL_RC; do
   assert_contains "$(cat "$REPO/config.example.sh")" "$key="
 done
 

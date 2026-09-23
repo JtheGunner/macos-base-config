@@ -16,6 +16,10 @@ KARABINER_WAIT_SECONDS="${KARABINER_WAIT_SECONDS:-10}"
 # where Homebrew lives when it is installed but not on PATH (Apple silicon, Intel)
 BREW_CANDIDATES="${BREW_CANDIDATES:-/opt/homebrew/bin/brew /usr/local/bin/brew}"
 HOMEBREW_INSTALLER_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
+# system-wide keyboard layouts (a copy there needs sudo) and the swift binary
+KEYBOARD_SYSTEM_DIR="${KEYBOARD_SYSTEM_DIR:-/Library/Keyboard Layouts}"
+SWIFT="${SWIFT:-swift}"
+KEYBOARD_LAYOUT_NAME="Custom Swiss German"
 STEP_SKIP_REASON=""
 STEP_FAIL_REASON=""
 PULLED_DIRS=""
@@ -172,8 +176,75 @@ step_karabiner() {
   run_in "$dir" ./apply.sh
 }
 
+# without_xml_comments FILE -> FILE minus its <!-- ... --> lines (layout
+# editors like Ukelele stamp the export date into them)
+without_xml_comments() { sed '/<!--/,/-->/d' "$1"; }
+
+# installed_layout SRC_DIR -> the path of an installed copy of SRC_DIR's
+# CustomSwissGerman.keylayout (~/Library first), empty if none. Copies that
+# differ only in comments count as the same layout.
+installed_layout() {
+  local src="$1/CustomSwissGerman.keylayout" dir installed
+  for dir in "$HOME/Library/Keyboard Layouts" "$KEYBOARD_SYSTEM_DIR"; do
+    installed="$dir/CustomSwissGerman.keylayout"
+    [ -f "$installed" ] || continue
+    if [ "$(without_xml_comments "$src")" = "$(without_xml_comments "$installed")" ]; then
+      echo "$installed"
+      return 0
+    fi
+  done
+}
+
+step_keyboard() {
+  local name=swiss-windows-keyboard-layout-macos dir layout
+  local user_dir="$HOME/Library/Keyboard Layouts"
+  local enable_hint="enable '$KEYBOARD_LAYOUT_NAME' under System Settings > Keyboard > Input Sources, then log out and in"
+  dir="$PARENT_DIR/$name"
+  ensure_sibling "$name" "$(sibling_url "$name")" "$dir" || return 1
+  if [ ! -f "$dir/CustomSwissGerman.keylayout" ]; then
+    $DRY_RUN && return 0
+    STEP_FAIL_REASON="no CustomSwissGerman.keylayout in $dir"
+    return 1
+  fi
+
+  layout="$(installed_layout "$dir")"
+  if [ -n "$layout" ]; then
+    echo "  layout already installed: $layout"
+  elif [ -e "$KEYBOARD_SYSTEM_DIR/CustomSwissGerman.keylayout" ]; then
+    # a user copy next to it would show the layout twice in the menu
+    skip "an older $KEYBOARD_LAYOUT_NAME is in $KEYBOARD_SYSTEM_DIR - update it: sudo cp \"$dir\"/CustomSwissGerman.* \"$KEYBOARD_SYSTEM_DIR/\""
+    return 0
+  else
+    layout="$user_dir/CustomSwissGerman.keylayout"
+    run_cmd mkdir -p "$user_dir" &&
+      run_cmd cp "$dir/CustomSwissGerman.keylayout" "$dir/CustomSwissGerman.icns" "$user_dir/" || return 1
+  fi
+
+  if ! command -v "$SWIFT" >/dev/null 2>&1 ||
+    ! run_cmd "$SWIFT" "$HERE/enable-input-source.swift" "$layout" "$KEYBOARD_LAYOUT_NAME"; then
+    skip "$enable_hint"
+  fi
+}
+
+# disable_gatekeeper -> allow apps from anywhere; macOS asks to confirm it in
+# Privacy & Security, so that pane is opened
+disable_gatekeeper() {
+  if spctl --status 2>/dev/null | grep -q 'assessments disabled'; then
+    echo "  Gatekeeper: already off"
+    return 0
+  fi
+  run_cmd sudo spctl --master-disable || return 1
+  run_cmd open "x-apple.systempreferences:com.apple.preference.security?General" || true
+  echo "  Gatekeeper: confirm 'Allow applications from: Anywhere' under Privacy & Security"
+}
+
 step_macos() {
-  run_in "$HERE" python3 macos-defaults.py
+  run_in "$HERE" python3 macos-defaults.py || return 1
+  [ "$MACOS_DISABLE_GATEKEEPER" = 1 ] || return 0
+  if ! disable_gatekeeper; then
+    STEP_FAIL_REASON="Gatekeeper"
+    return 1
+  fi
 }
 
 step_jetbrains() {
@@ -289,8 +360,10 @@ step_dotfiles() {
 }
 
 step_manual() {
-  echo "  - Karabiner permissions: karabiner-windows-keyboard-mapping-macos/setup.sh prints them"
-  echo "  - Swiss keyboard layout: swiss-windows-keyboard-layout-macos/README.md"
-  echo "  - PhpStorm: Settings > Tools > Terminal > 'Use Option as Meta key' off (AltGr in the console)"
-  echo "  - see README.md 'Manual steps' (VoiceOver off, Gatekeeper)"
+  echo "  - Karabiner permissions: karabiner-windows-keyboard-mapping-macos/setup.sh opens the panes"
+  echo "  - Input source: check '$KEYBOARD_LAYOUT_NAME' under System Settings > Keyboard > Input Sources, then log out and in"
+  if [ "$MACOS_DISABLE_GATEKEEPER" = 1 ]; then
+    echo "  - Gatekeeper: confirm 'Allow applications from: Anywhere' under Privacy & Security"
+  fi
+  echo "  - Licenses: enter the AltTab (Pro) and Sidebar keys from your password manager"
 }

@@ -20,13 +20,14 @@ expand_home() {
 }
 
 # load_config [PATH] -> sets BOOTSTRAP_STEPS, BOOTSTRAP_SKIP, BREW_BUNDLE_EXTRA,
-# the DOTFILES_* values, and CONFIG_FILE (the file in use - PATH or the default path, even
+# MACOS_DISABLE_GATEKEEPER, the DOTFILES_* values, and CONFIG_FILE (the file in use - PATH or the default path, even
 # when that doesn't exist yet). Without PATH the default file is used if it
 # exists. Return 2 on a missing explicit file, a syntax error, or an invalid
 # value.
 load_config() {
   local config_file="${1:-}"
   BOOTSTRAP_STEPS=""; BOOTSTRAP_SKIP=""; BREW_BUNDLE_EXTRA=""
+  MACOS_DISABLE_GATEKEEPER=0
   DOTFILES_DIR=""; DOTFILES_URL=""; DOTFILES_ASSUME_YES=0
   DOTFILES_TERMINALS=""; DOTFILES_OMNISHELL_CONFIG=""; DOTFILES_LOCAL_RC=""
 
@@ -60,6 +61,11 @@ validate_config() {
     echo "  in $config_file (BOOTSTRAP_STEPS / BOOTSTRAP_SKIP)" >&2
     return 2
   fi
+  case "$MACOS_DISABLE_GATEKEEPER" in
+    0 | 1) ;;
+    *) echo "bootstrap.sh: $config_file: MACOS_DISABLE_GATEKEEPER must be 0 or 1, got '$MACOS_DISABLE_GATEKEEPER'" >&2
+       return 2 ;;
+  esac
   case "$DOTFILES_ASSUME_YES" in
     0 | 1) ;;
     *) echo "bootstrap.sh: $config_file: DOTFILES_ASSUME_YES must be 0 or 1, got '$DOTFILES_ASSUME_YES'" >&2

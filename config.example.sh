@@ -18,6 +18,13 @@ BOOTSTRAP_SKIP=""
 # Brewfile, e.g. "~/.config/macos-base-config/Brewfile". Empty = none.
 BREW_BUNDLE_EXTRA=""
 
+# --- macos step ---------------------------------------------------------------
+
+# 1 = allow apps from anywhere: "sudo spctl --master-disable", then macOS asks
+# you to confirm under System Settings > Privacy & Security (the step opens
+# it). 0 = leave Gatekeeper as it is.
+MACOS_DISABLE_GATEKEEPER=0
+
 # --- dotfiles step ------------------------------------------------------------
 
 # Checkout to use, cloned there if missing. Empty = next to this repo

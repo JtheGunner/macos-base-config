@@ -2,8 +2,11 @@
 """
 macOS defaults that Karabiner cannot do (menu-aware shortcuts, system hotkeys).
 
-  1. Mission Control "Move left/right a space" (Ctrl+Arrow, symbolic hotkeys
-     79-82) -> disabled, so Ctrl+Arrow reaches the app for word navigation.
+  1. System hotkeys -> disabled (symbolic hotkeys):
+     - Mission Control "Move left/right a space" (Ctrl+Arrow, 79-82), so
+       Ctrl+Arrow reaches the app for word navigation.
+     - "Turn VoiceOver on or off" (Cmd+F5, 59): Karabiner sends Ctrl+F5 as
+       Cmd+F5, which would start VoiceOver instead of reaching the app.
   2. Finder: forward-delete key (Delete / Fn+Backspace) -> "Move to Bin"
      (App Shortcut via NSUserKeyEquivalents; menu-aware, so it still
      forward-deletes inside a rename field).
@@ -31,10 +34,11 @@ SHK_PLIST = Path.home() / "Library/Preferences/com.apple.symbolichotkeys.plist"
 # id -> (label, macOS default binding: (char, key code, modifier mask)).
 # The binding is written too when the entry is missing (fresh Mac), since
 # macOS only stores hotkeys that were changed once.
-SPACE_HOTKEYS = {79: ("Move left a space (Ctrl+Left)",         (65535, 123, 262144)),
-                 80: ("Move left a space (Ctrl+Shift+Left)",   (65535, 123, 393216)),
-                 81: ("Move right a space (Ctrl+Right)",       (65535, 124, 262144)),
-                 82: ("Move right a space (Ctrl+Shift+Right)", (65535, 124, 393216))}
+DISABLED_HOTKEYS = {59: ("Turn VoiceOver on or off (Cmd+F5)",      (65535, 96, 1048576)),
+                    79: ("Move left a space (Ctrl+Left)",         (65535, 123, 262144)),
+                    80: ("Move left a space (Ctrl+Shift+Left)",   (65535, 123, 393216)),
+                    81: ("Move right a space (Ctrl+Right)",       (65535, 124, 262144)),
+                    82: ("Move right a space (Ctrl+Shift+Right)", (65535, 124, 393216))}
 FORWARD_DELETE = ""  # NSDeleteFunctionKey = the "Delete" / Fn+Backspace key
 FINDER_KEYEQ = {"Move to Bin": FORWARD_DELETE, "Move to Trash": FORWARD_DELETE}
 
@@ -49,10 +53,10 @@ def defaults_read(domain: str, key: str, current_host: bool = False) -> str | No
 
 
 def show() -> None:
-    print("symbolic hotkeys (Ctrl+Arrow space switch):")
+    print("symbolic hotkeys (VoiceOver, Ctrl+Arrow space switch):")
     try:
         shk = plistlib.loads(SHK_PLIST.read_bytes()).get("AppleSymbolicHotKeys", {})
-        for i in SPACE_HOTKEYS:
+        for i in DISABLED_HOTKEYS:
             print(f"  {i}: enabled={shk.get(str(i), {}).get('enabled')}")
     except OSError:
         print("  (no plist)")
@@ -61,16 +65,16 @@ def show() -> None:
     print("AppleFontSmoothing:", defaults_read("-g", "AppleFontSmoothing", current_host=True))
 
 
-def disable_space_hotkeys(dry: bool) -> None:
+def disable_hotkeys(dry: bool) -> None:
     # A fresh Mac often has no plist yet, but the hotkeys are still active by
     # default - create the entries rather than skip.
     existed = SHK_PLIST.is_file()
     data = plistlib.loads(SHK_PLIST.read_bytes()) if existed else {}
     shk = data.setdefault("AppleSymbolicHotKeys", {})
-    to_change = [i for i in SPACE_HOTKEYS
+    to_change = [i for i in DISABLED_HOTKEYS
                  if shk.get(str(i), {}).get("enabled", True)]
     if not to_change:
-        print("symbolic hotkeys 79-82: already disabled")
+        print(f"symbolic hotkeys {sorted(DISABLED_HOTKEYS)}: already disabled")
         return
     if dry:
         print(f"symbolic hotkeys: would disable {to_change}"
@@ -85,7 +89,7 @@ def disable_space_hotkeys(dry: bool) -> None:
         entry = shk.setdefault(str(i), {})
         entry["enabled"] = False
         entry.setdefault("value", {"type": "standard",
-                                   "parameters": list(SPACE_HOTKEYS[i][1])})
+                                   "parameters": list(DISABLED_HOTKEYS[i][1])})
     SHK_PLIST.write_bytes(plistlib.dumps(data, fmt=plistlib.FMT_BINARY))
     print(f"symbolic hotkeys: disabled {to_change}  (log out / log in to take effect)")
 
@@ -151,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
         show()
         return 0
 
-    disable_space_hotkeys(args.dry_run)
+    disable_hotkeys(args.dry_run)
     set_finder_keyequiv(args.dry_run)
     set_font_smoothing(args.dry_run)
 
@@ -169,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
                           'echo "reverted - log out / log in for hotkeys + font"\n')
             rp.chmod(0o755)
             print(f"\nrollback script: {rp.name}")
-        print("\nSome changes need a logout/login (space hotkeys, font smoothing).")
+        print("\nSome changes need a logout/login (system hotkeys, font smoothing).")
     return 0
 
 
