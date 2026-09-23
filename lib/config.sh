@@ -22,7 +22,7 @@ expand_home() {
 
 # load_config [PATH] -> sets BOOTSTRAP_STEPS, BOOTSTRAP_SKIP, BREW_BUNDLE_EXTRA,
 # PACKAGES (+ the resolved SELECTED_PACKAGES), MACOS_DISABLE_GATEKEEPER,
-# SETTINGS_DIR (default: the config file's directory), the
+# SETTINGS_DIR (default: the config file's directory), NAS_MOUNT_SHARES, the
 # DOTFILES_* values, and CONFIG_FILE (the file in use - PATH or the default
 # path, even when that doesn't exist yet). Without PATH the default file is used if it
 # exists. Return 2 on a missing explicit file, a syntax error, or an invalid
@@ -31,7 +31,7 @@ load_config() {
   local config_file="${1:-}"
   BOOTSTRAP_STEPS=""; BOOTSTRAP_SKIP=""; BREW_BUNDLE_EXTRA=""
   PACKAGES="@base"; SELECTED_PACKAGES=""
-  MACOS_DISABLE_GATEKEEPER=0; SETTINGS_DIR=""
+  MACOS_DISABLE_GATEKEEPER=0; SETTINGS_DIR=""; NAS_MOUNT_SHARES=""
   DOTFILES_DIR=""; DOTFILES_URL=""; DOTFILES_ASSUME_YES=0
   DOTFILES_TERMINALS=""; DOTFILES_OMNISHELL_CONFIG=""; DOTFILES_LOCAL_RC=""
 
@@ -101,6 +101,16 @@ validate_config() {
   esac
   if [ "$SETTINGS_DIR" != "$config_dir" ] && [ ! -d "$SETTINGS_DIR" ]; then
     echo "bootstrap.sh: $config_file: SETTINGS_DIR is not a directory: $SETTINGS_DIR" >&2
+    return 2
+  fi
+  # the shares go into an AppleScript string: plain smb / afp / nfs URLs only
+  local bad_share
+  bad_share="$(printf '%s\n' "$NAS_MOUNT_SHARES" | awk '{
+    for (i = 1; i <= NF; i++)
+      if ($i !~ /^(smb|afp|nfs):\/\/[^"\\*?[]+$/) { print $i; exit }
+  }')"
+  if [ -n "$bad_share" ]; then
+    echo "bootstrap.sh: $config_file: NAS_MOUNT_SHARES: not an smb://, afp:// or nfs:// URL: $bad_share" >&2
     return 2
   fi
   if [ -n "$DOTFILES_OMNISHELL_CONFIG" ] && { [ ! -f "$DOTFILES_OMNISHELL_CONFIG" ] || [ ! -r "$DOTFILES_OMNISHELL_CONFIG" ]; }; then

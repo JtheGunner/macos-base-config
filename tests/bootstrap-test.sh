@@ -312,6 +312,17 @@ assert_eq "$(APPLICATIONS_DIR="$TMP/apps3" PACKAGE_CATALOG="$f" manual_package_h
 mkdir -p "$TMP/apps3/FileZilla.app"
 assert_eq "$(APPLICATIONS_DIR="$TMP/apps3" PACKAGE_CATALOG="$f" manual_package_hints "filezilla")" ""
 
+it "the shipped catalog has nas-mount, its template renders one try per share"
+assert_eq "$(select_packages nas-mount)" "nas-mount"
+out="$(NAS_MOUNT_SHARES="smb://nas/a
+  afp://nas/b" applet_source "$REPO/packages/nas-mount.applescript")"
+assert_contains "$out" '{"smb://nas/a", "afp://nas/b"}'
+assert_contains "$out" "try"
+assert_contains "$out" "mount volume"
+assert_not_contains "$out" "@@"
+out="$(applet_source "$TMP/no-template" 2>&1)"; rc=$?
+assert_eq "$rc" 1
+
 it "missing explicit config is exit 2"
 out="$(load_config "$TMP/missing.sh" 2>&1)"; rc=$?
 assert_eq "$rc" 2
@@ -432,6 +443,22 @@ assert_eq "$out" "$TMP/priv"
 write_config 'BOOTSTRAP_STEPS=""' >/dev/null
 out="$(cd "$TMP" && load_config config.sh && echo "$SETTINGS_DIR")"
 assert_eq "$out" "$TMP"
+
+it "NAS_MOUNT_SHARES: empty by default; smb, afp, nfs URLs over several lines load"
+XDG_CONFIG_HOME="$TMP/none" load_config ""
+assert_eq "$NAS_MOUNT_SHARES" ""
+f="$(write_config 'NAS_MOUNT_SHARES="smb://10.0.12.20/privat
+  afp://nas.local/data	nfs://nas.local/export/media"')"
+load_config "$f"; rc=$?
+assert_eq "$rc" 0
+
+it "a NAS share that isn't a plain smb, afp or nfs URL is exit 2"
+for bad in 'http://nas/data' 'smb://' 'smb://nas/a"b' 'smb://nas/*'; do
+  f="$(write_config "NAS_MOUNT_SHARES='smb://nas/ok $bad'")"
+  out="$(load_config "$f" 2>&1)"; rc=$?
+  assert_eq "$rc" 2
+  assert_contains "$out" "NAS_MOUNT_SHARES: not an smb://, afp:// or nfs:// URL: $bad"
+done
 
 it "an unknown package in the config is exit 2"
 f="$(write_config 'PACKAGES="@base bogus"')"
@@ -1789,7 +1816,8 @@ assert_eq "$BREW_BUNDLE_EXTRA" ""
 assert_eq "$MACOS_DISABLE_GATEKEEPER" 0
 assert_eq "$PACKAGES" "@base"
 assert_eq "$SETTINGS_DIR" "$REPO"
-for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP PACKAGES BREW_BUNDLE_EXTRA MACOS_DISABLE_GATEKEEPER SETTINGS_DIR DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG DOTFILES_LOCAL_RC; do
+assert_eq "$NAS_MOUNT_SHARES" ""
+for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP PACKAGES BREW_BUNDLE_EXTRA MACOS_DISABLE_GATEKEEPER SETTINGS_DIR NAS_MOUNT_SHARES DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG DOTFILES_LOCAL_RC; do
   assert_contains "$(cat "$REPO/config.example.sh")" "$key="
 done
 

@@ -188,3 +188,14 @@ manual_package_hints() {
     echo "  - Install $check by hand ($description): $ref"
   done <<< "$rows"
 }
+
+# applet_source TEMPLATE -> TEMPLATE with @@NAS_MOUNT_SHARES@@ replaced by the
+# shares as AppleScript list items ("smb://a", "afp://b"). The config check
+# keeps quotes and backslashes out of them. 1 when TEMPLATE can't be read.
+applet_source() {
+  local template list
+  template="$(cat "$1" 2>/dev/null)" || return 1
+  list="$(printf '%s\n' "$NAS_MOUNT_SHARES" |
+    awk '{ for (i = 1; i <= NF; i++) printf "%s\"%s\"", (n++ ? ", " : ""), $i }')"
+  printf '%s\n' "${template//@@NAS_MOUNT_SHARES@@/$list}"
+}

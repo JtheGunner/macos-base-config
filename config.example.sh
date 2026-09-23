@@ -34,6 +34,14 @@ BREW_BUNDLE_EXTRA=""
 # it). 0 = leave Gatekeeper as it is.
 MACOS_DISABLE_GATEKEEPER=0
 
+# --- extras step --------------------------------------------------------------
+
+# NAS shares for the nas-mount app (package nas-mount in PACKAGES): smb://,
+# afp:// or nfs:// URLs, separated by spaces or newlines; a space inside a
+# path is %20. No credentials - Finder takes them from the Keychain. Empty =
+# nas-mount is skipped. Example: "smb://nas.local/data smb://nas.local/media"
+NAS_MOUNT_SHARES=""
+
 # --- apps step ----------------------------------------------------------------
 
 # Private settings directory: alttab.plist and sidebar.sidebarbackup, written
