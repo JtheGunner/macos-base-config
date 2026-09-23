@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """
-AltTab and Sidebar settings, versioned in this folder - without licenses.
+AltTab and Sidebar settings, kept outside this public repo - without licenses.
 
-    python3 app_settings.py apply [--dry-run]   repo -> this Mac (bootstrap: apps step)
-    python3 app_settings.py export              this Mac -> repo
+    python3 app_settings.py apply [--dir DIR] [--dry-run]   DIR -> this Mac (bootstrap: apps step)
+    python3 app_settings.py export [--dir DIR]              this Mac -> DIR
+
+DIR is the private settings directory: SETTINGS_DIR in the bootstrap config,
+by default ~/.config/macos-base-config (next to config.sh). An app without a
+file there is skipped.
 
 AltTab   alttab.plist: the com.lwouis.alt-tab-macos defaults minus window
          frames, update and telemetry state. apply merges them into the
@@ -33,9 +37,8 @@ import time
 import uuid
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
-ALTTAB_FILE = HERE / "alttab.plist"
-SIDEBAR_FILE = HERE / "sidebar.sidebarbackup"
+ALTTAB_FILE_NAME = "alttab.plist"
+SIDEBAR_FILE_NAME = "sidebar.sidebarbackup"
 ALTTAB_DOMAIN = "com.lwouis.alt-tab-macos"
 ALTTAB_RUNTIME_PREFIXES = ("NSWindow Frame", "NSStatusItem", "SU", "MSAppCenter")
 SIDEBAR_SUPPORT = Path("Library/Application Support/at.sidebar.Sidebar")
@@ -60,6 +63,20 @@ def is_license_key(key: str) -> bool:
     return "licen" in key.lower()
 
 
+def default_settings_dir() -> Path:
+    config_home = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(config_home) / "macos-base-config"
+
+
+def write_private(path: Path, data: bytes) -> None:
+    """write a settings file readable only by you, like config.sh (600) - it
+    shows your pinned apps, links and screen names"""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as out:
+        out.write(data)
+    os.chmod(path, 0o600)  # an existing file would keep its old mode
+
+
 def app_installed(name: str) -> bool:
     return (Path(os.environ.get("APPLICATIONS_DIR", "/Applications")) / f"{name}.app").is_dir()
 
@@ -76,23 +93,25 @@ def alttab_settings(domain: dict) -> dict:
             if not key.startswith(ALTTAB_RUNTIME_PREFIXES) and not is_license_key(key)}
 
 
-def export_alttab() -> None:
+def export_alttab(settings_dir: Path) -> None:
     domain = read_alttab_domain()
     if not domain:
         print("  AltTab: no settings on this Mac - skipped")
         return
-    ALTTAB_FILE.write_bytes(plistlib.dumps(alttab_settings(domain), fmt=plistlib.FMT_XML))
-    print(f"  AltTab: {ALTTAB_FILE.name}")
+    target = settings_dir / ALTTAB_FILE_NAME
+    write_private(target, plistlib.dumps(alttab_settings(domain), fmt=plistlib.FMT_XML))
+    print(f"  AltTab: {target}")
 
 
-def apply_alttab(dry_run: bool) -> None:
+def apply_alttab(settings_dir: Path, dry_run: bool) -> None:
     if not app_installed("AltTab"):
         print("  AltTab: not installed - skipped")
         return
-    if not ALTTAB_FILE.is_file():
-        print(f"  AltTab: no {ALTTAB_FILE.name} - run: python3 app_settings.py export")
+    source = settings_dir / ALTTAB_FILE_NAME
+    if not source.is_file():
+        print(f"  AltTab: no settings in {settings_dir} - skipped")
         return
-    wanted = plistlib.loads(ALTTAB_FILE.read_bytes())
+    wanted = plistlib.loads(source.read_bytes())
     current = read_alttab_domain()
     changed = sorted(key for key, value in wanted.items() if current.get(key) != value)
     if not changed:
@@ -142,15 +161,16 @@ def _without_metadata(backup: dict) -> dict:
     return {key: value for key, value in backup.items() if key != "metadata"}
 
 
-def export_sidebar() -> None:
+def export_sidebar(settings_dir: Path) -> None:
     backups = sorted(sidebar_support().glob("*.sidebarbackup"), key=lambda p: p.stat().st_mtime)
     if not backups:
         print("  Sidebar: no backup found - create one in Sidebar: Settings > Expert > Backups")
         return
     source = backups[-1]
     clean = sanitized_sidebar_backup(plistlib.loads(source.read_bytes()))
-    if SIDEBAR_FILE.is_file() and \
-            _without_metadata(plistlib.loads(SIDEBAR_FILE.read_bytes())) == _without_metadata(clean):
+    target = settings_dir / SIDEBAR_FILE_NAME
+    if target.is_file() and \
+            _without_metadata(plistlib.loads(target.read_bytes())) == _without_metadata(clean):
         print(f"  Sidebar: unchanged (from {source.name})")
         return
     # Sidebar reads createdAt as UTC; plistlib writes naive datetimes as is
@@ -160,8 +180,8 @@ def export_sidebar() -> None:
         "createdAt": datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None),
         "reason": "manual",
     }
-    SIDEBAR_FILE.write_bytes(plistlib.dumps(clean, fmt=plistlib.FMT_BINARY))
-    print(f"  Sidebar: {SIDEBAR_FILE.name} (from {source.name})")
+    write_private(target, plistlib.dumps(clean, fmt=plistlib.FMT_BINARY))
+    print(f"  Sidebar: {target} (from {source.name})")
 
 
 def sidebar_backup_name(backup: dict) -> str:
@@ -171,14 +191,15 @@ def sidebar_backup_name(backup: dict) -> str:
     return f"{meta['appVersion']}_{created:%Y%m%d-%H%M%S}_{meta['id'][:8]}.sidebarbackup"
 
 
-def apply_sidebar(dry_run: bool) -> None:
+def apply_sidebar(settings_dir: Path, dry_run: bool) -> None:
     if not app_installed("Sidebar"):
         print("  Sidebar: not installed - skipped")
         return
-    if not SIDEBAR_FILE.is_file():
-        print(f"  Sidebar: no {SIDEBAR_FILE.name} - run: python3 app_settings.py export")
+    source_file = settings_dir / SIDEBAR_FILE_NAME
+    if not source_file.is_file():
+        print(f"  Sidebar: no settings in {settings_dir} - skipped")
         return
-    data = SIDEBAR_FILE.read_bytes()
+    data = source_file.read_bytes()
     support = sidebar_support()
     if any(existing.read_bytes() == data for existing in support.glob("*.sidebarbackup")):
         print("  Sidebar: backup already in its list")
@@ -198,15 +219,20 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=["apply", "export"])
+    parser.add_argument("--dir", type=Path, default=None,
+                        help="private settings directory (default: ~/.config/macos-base-config)")
     parser.add_argument("--dry-run", action="store_true", help="apply: change nothing")
     args = parser.parse_args(argv)
+    settings_dir = (args.dir or default_settings_dir()).expanduser()
     try:
         if args.command == "export":
-            export_alttab()
-            export_sidebar()
+            # a new settings dir is private (700); an existing one is left as it is
+            settings_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            export_alttab(settings_dir)
+            export_sidebar(settings_dir)
         else:
-            apply_alttab(args.dry_run)
-            apply_sidebar(args.dry_run)
+            apply_alttab(settings_dir, args.dry_run)
+            apply_sidebar(settings_dir, args.dry_run)
     except (OSError, ValueError, KeyError, plistlib.InvalidFileException,
             subprocess.CalledProcessError) as error:
         print(f"app_settings: {error}", file=sys.stderr)

@@ -34,6 +34,15 @@ BREW_BUNDLE_EXTRA=""
 # it). 0 = leave Gatekeeper as it is.
 MACOS_DISABLE_GATEKEEPER=0
 
+# --- apps step ----------------------------------------------------------------
+
+# Private settings directory: alttab.plist and sidebar.sidebarbackup, written
+# by "python3 apps/app_settings.py export --dir <dir>". Empty = the directory
+# of this config file; a relative path is relative to it too. Keep it out of
+# the public repo, e.g. in iCloud Drive:
+# "~/Library/Mobile Documents/com~apple~CloudDocs/macos-base-config".
+SETTINGS_DIR=""
+
 # --- dotfiles step ------------------------------------------------------------
 
 # Checkout to use, cloned there if missing. Empty = next to this repo

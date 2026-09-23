@@ -361,7 +361,11 @@ step_editor() {
 }
 
 step_apps() {
-  run_in "$HERE/apps" python3 app_settings.py apply
+  if [ ! -d "$SETTINGS_DIR" ]; then
+    skip "no settings dir: $SETTINGS_DIR"
+    return 0
+  fi
+  run_in "$HERE/apps" python3 app_settings.py apply --dir "$SETTINGS_DIR"
 }
 
 LOCAL_RC_BEGIN="# >>> macos-base-config >>>"
@@ -460,12 +464,21 @@ step_dotfiles() {
 }
 
 step_manual() {
+  local licensed=""
   echo "  - Karabiner permissions: karabiner-windows-keyboard-mapping-macos/setup.sh opens the panes"
   echo "  - Input source: check '$KEYBOARD_LAYOUT_NAME' under System Settings > Keyboard > Input Sources, then log out and in"
   if [ "$MACOS_DISABLE_GATEKEEPER" = 1 ]; then
     echo "  - Gatekeeper: confirm 'Allow applications from: Anywhere' under Privacy & Security"
   fi
-  echo "  - Sidebar settings: Settings > Expert > Backups > restore the backup the apps step added"
-  echo "  - Licenses: enter the AltTab (Pro) and Sidebar keys from your password manager"
+  if [ -d "$APPLICATIONS_DIR/Sidebar.app" ] && [ -f "$SETTINGS_DIR/sidebar.sidebarbackup" ]; then
+    echo "  - Sidebar settings: Settings > Expert > Backups > restore the backup the apps step added"
+  fi
+  [ -d "$APPLICATIONS_DIR/AltTab.app" ] && licensed="AltTab (Pro)"
+  [ -d "$APPLICATIONS_DIR/Sidebar.app" ] && licensed="${licensed:+$licensed and }Sidebar"
+  case "$licensed" in
+    "") ;;
+    *" and "*) echo "  - Licenses: enter the $licensed keys from your password manager" ;;
+    *) echo "  - Licenses: enter the $licensed key from your password manager" ;;
+  esac
   manual_package_hints "$SELECTED_PACKAGES"
 }

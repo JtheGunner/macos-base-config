@@ -21,7 +21,8 @@ expand_home() {
 }
 
 # load_config [PATH] -> sets BOOTSTRAP_STEPS, BOOTSTRAP_SKIP, BREW_BUNDLE_EXTRA,
-# PACKAGES (+ the resolved SELECTED_PACKAGES), MACOS_DISABLE_GATEKEEPER, the
+# PACKAGES (+ the resolved SELECTED_PACKAGES), MACOS_DISABLE_GATEKEEPER,
+# SETTINGS_DIR (default: the config file's directory), the
 # DOTFILES_* values, and CONFIG_FILE (the file in use - PATH or the default
 # path, even when that doesn't exist yet). Without PATH the default file is used if it
 # exists. Return 2 on a missing explicit file, a syntax error, or an invalid
@@ -30,7 +31,7 @@ load_config() {
   local config_file="${1:-}"
   BOOTSTRAP_STEPS=""; BOOTSTRAP_SKIP=""; BREW_BUNDLE_EXTRA=""
   PACKAGES="@base"; SELECTED_PACKAGES=""
-  MACOS_DISABLE_GATEKEEPER=0
+  MACOS_DISABLE_GATEKEEPER=0; SETTINGS_DIR=""
   DOTFILES_DIR=""; DOTFILES_URL=""; DOTFILES_ASSUME_YES=0
   DOTFILES_TERMINALS=""; DOTFILES_OMNISHELL_CONFIG=""; DOTFILES_LOCAL_RC=""
 
@@ -81,6 +82,25 @@ validate_config() {
   esac
   if [ -n "$BREW_BUNDLE_EXTRA" ] && { [ ! -f "$BREW_BUNDLE_EXTRA" ] || [ ! -r "$BREW_BUNDLE_EXTRA" ]; }; then
     echo "bootstrap.sh: $config_file: BREW_BUNDLE_EXTRA is not a readable file: $BREW_BUNDLE_EXTRA" >&2
+    return 2
+  fi
+  # SETTINGS_DIR is handed to a script that runs from apps/: make it absolute,
+  # a relative one relative to the config file
+  local config_dir
+  config_dir="$(dirname "$config_file")"
+  case "$config_dir" in
+    /*) ;;
+    *) config_dir="$(cd "$config_dir" 2>/dev/null && pwd)" || config_dir="$PWD/$config_dir" ;;
+  esac
+  SETTINGS_DIR="$(expand_home "$SETTINGS_DIR")"
+  case "$SETTINGS_DIR" in
+    # default: next to the config file - one --config path locates everything private
+    "") SETTINGS_DIR="$config_dir" ;;
+    /*) ;;
+    *) SETTINGS_DIR="$config_dir/$SETTINGS_DIR" ;;
+  esac
+  if [ "$SETTINGS_DIR" != "$config_dir" ] && [ ! -d "$SETTINGS_DIR" ]; then
+    echo "bootstrap.sh: $config_file: SETTINGS_DIR is not a directory: $SETTINGS_DIR" >&2
     return 2
   fi
   if [ -n "$DOTFILES_OMNISHELL_CONFIG" ] && { [ ! -f "$DOTFILES_OMNISHELL_CONFIG" ] || [ ! -r "$DOTFILES_OMNISHELL_CONFIG" ]; }; then

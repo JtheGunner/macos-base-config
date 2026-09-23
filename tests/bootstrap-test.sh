@@ -406,6 +406,33 @@ XDG_CONFIG_HOME="$TMP/none" load_config ""
 assert_eq "$PACKAGES" "@base"
 assert_eq "$SELECTED_PACKAGES" "karabiner-elements alt-tab sidebar font-jetbrains-mono"
 
+it "SETTINGS_DIR defaults to the config file's directory"
+XDG_CONFIG_HOME="$TMP/none" load_config ""
+assert_eq "$SETTINGS_DIR" "$TMP/none/macos-base-config"
+f="$(write_config 'BOOTSTRAP_STEPS=""')"
+load_config "$f"
+assert_eq "$SETTINGS_DIR" "$TMP"
+
+it "SETTINGS_DIR: ~ expands; a set dir that doesn't exist is exit 2"
+mkdir -p "$TMP/h/icloud dir"
+f="$(write_config 'SETTINGS_DIR="~/icloud dir"')"
+HOME="$TMP/h" load_config "$f"; rc=$?
+assert_eq "$rc" 0
+assert_eq "$SETTINGS_DIR" "$TMP/h/icloud dir"
+f="$(write_config 'SETTINGS_DIR="~/nope"')"
+out="$(HOME="$TMP/h" load_config "$f" 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "SETTINGS_DIR is not a directory: $TMP/h/nope"
+
+it "a relative SETTINGS_DIR or --config resolves to an absolute path"
+mkdir -p "$TMP/priv"
+f="$(write_config 'SETTINGS_DIR="priv"')"
+out="$(cd / && load_config "$f" && echo "$SETTINGS_DIR")"
+assert_eq "$out" "$TMP/priv"
+write_config 'BOOTSTRAP_STEPS=""' >/dev/null
+out="$(cd "$TMP" && load_config config.sh && echo "$SETTINGS_DIR")"
+assert_eq "$out" "$TMP"
+
 it "an unknown package in the config is exit 2"
 f="$(write_config 'PACKAGES="@base bogus"')"
 out="$(load_config "$f" 2>&1)"; rc=$?
@@ -598,13 +625,13 @@ assert_eq "$(cat "$d/settings.json")" '{
 assert_contains "$OUT" "Cursor: created"
 
 # --- apps/app_settings.py ---------------------------------------------------
-# app_sandbox -> AH (fake HOME), AD (a copy of apps/ without the tracked
-# settings), AB (stub bin: defaults keeps domains under $AH/defaults-store,
+# app_sandbox -> AH (fake HOME), AD (a copy of apps/), AS (settings dir, not created),
+# AB (stub bin: defaults keeps domains under $AH/defaults-store,
 # osascript and open only log), ALOG (their calls), AAPPS (fake /Applications)
 app_sandbox() {
   local root
   root="$(mktemp -d "$TMP/apps.XXXXXX")"
-  AH="$root/home"; AD="$root/apps"; AB="$root/bin"; ALOG="$root/calls.log"; AAPPS="$root/Applications"
+  AH="$root/home"; AD="$root/apps"; AS="$root/settings"; AB="$root/bin"; ALOG="$root/calls.log"; AAPPS="$root/Applications"
   mkdir -p "$AH" "$AD" "$AB" "$AAPPS/AltTab.app" "$AAPPS/Sidebar.app"
   : > "$ALOG"
   cp "$REPO/apps/app_settings.py" "$AD/"
@@ -622,7 +649,7 @@ EOF
   chmod +x "$AB"/*
 }
 run_app_settings() {
-  OUT="$(HOME="$AH" PATH="$AB:$PATH" APPLICATIONS_DIR="$AAPPS" python3 "$AD/app_settings.py" "$@" 2>&1)"
+  OUT="$(HOME="$AH" PATH="$AB:$PATH" APPLICATIONS_DIR="$AAPPS" python3 "$AD/app_settings.py" "$@" --dir "$AS" 2>&1)"
   RC=$?
 }
 # py EXPR... -> run python3 with plistlib, json, sys imported
@@ -666,17 +693,33 @@ write_alttab "$(alttab_domain)" appearanceTheme=2 hideStatusIcons=true \
 write_sidebar_backup "$(sidebar_support)/2.2.5_20260923-080000_AAAAAAAA.sidebarbackup"
 run_app_settings export
 assert_eq "$RC" 0
-assert_eq "$(py 'print(sorted(plistlib.load(open(sys.argv[1], "rb"))))' "$AD/alttab.plist")" "['appearanceTheme', 'hideStatusIcons']"
-assert_contains "$(cat "$AD/alttab.plist")" "<?xml"
+assert_eq "$(py 'print(sorted(plistlib.load(open(sys.argv[1], "rb"))))' "$AS/alttab.plist")" "['appearanceTheme', 'hideStatusIcons']"
+assert_contains "$(cat "$AS/alttab.plist")" "<?xml"
 
 it "apps export strips the Sidebar license, usage and personal data"
-b="$AD/sidebar.sidebarbackup"
+b="$AS/sidebar.sidebarbackup"
 assert_eq "$(py 'b = plistlib.load(open(sys.argv[1], "rb")); print("encryptedLicenseInfo" in b, b["mergesWithExistingPreferences"])' "$b")" "False True"
 assert_eq "$(py 'm = plistlib.load(open(sys.argv[1], "rb"))["metadata"]; print(sorted(m), m["reason"])' "$b")" "['appVersion', 'configurationVersion', 'createdAt', 'edition', 'id', 'reason'] manual"
 assert_eq "$(py 'b = plistlib.load(open(sys.argv[1], "rb")); print(sorted(json.loads(b["portableSettingsData"])))' "$b")" "['autoHideDelay', 'useLiveApplicationPreviews']"
 assert_eq "$(py 'b = plistlib.load(open(sys.argv[1], "rb")); print(sorted(plistlib.loads(b["preferencesPlist"])))' "$b")" "['KeyboardShortcuts_toggleApplicationList', 'applicationConfigurations', 'sidebarStyle', 'unlockedWeatherConfiguration']"
 assert_not_contains "$(py 'print(open(sys.argv[1], "rb").read())' "$b")" "SECRET-KEY"
 assert_contains "$OUT" "2.2.5_20260923-080000_AAAAAAAA.sidebarbackup"
+leaks="$(py '
+def keys(value):
+    if isinstance(value, dict):
+        for k, v in value.items():
+            yield k
+            yield from keys(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from keys(v)
+alttab = plistlib.load(open(sys.argv[1], "rb"))
+sidebar = plistlib.load(open(sys.argv[2], "rb"))
+found = list(keys(alttab)) + list(keys(sidebar))
+found += list(keys(json.loads(sidebar["portableSettingsData"])))
+found += list(keys(plistlib.loads(sidebar["preferencesPlist"])))
+print([k for k in found if "licen" in k.lower()])' "$AS/alttab.plist" "$AS/sidebar.sidebarbackup")"
+assert_eq "$leaks" "[]"
 
 it "apps export leaves an unchanged Sidebar export alone"
 before="$(py 'print(open(sys.argv[1], "rb").read())' "$b")"
@@ -689,7 +732,7 @@ assert_contains "$OUT" "Sidebar: unchanged"
 
 it "apps apply merges AltTab settings, keeps other keys, restarts AltTab"
 app_sandbox
-write_alttab "$AD/alttab.plist" appearanceTheme=2 hideStatusIcons=true
+write_alttab "$AS/alttab.plist" appearanceTheme=2 hideStatusIcons=true
 write_alttab "$(alttab_domain)" appearanceTheme=0 SULastCheckTime=x
 run_app_settings apply
 assert_eq "$RC" 0
@@ -709,7 +752,7 @@ assert_not_contains "$(cat "$ALOG")" "import"
 
 it "apps apply dry run only lists the AltTab keys it would change"
 app_sandbox
-write_alttab "$AD/alttab.plist" appearanceTheme=2
+write_alttab "$AS/alttab.plist" appearanceTheme=2
 write_alttab "$(alttab_domain)" appearanceTheme=0
 run_app_settings apply --dry-run
 assert_eq "$RC" 0
@@ -719,13 +762,13 @@ assert_eq "$(py 'print(plistlib.load(open(sys.argv[1], "rb"))["appearanceTheme"]
 
 it "apps apply adds the Sidebar backup to its backup list once"
 app_sandbox
-write_sidebar_backup "$AD/sidebar.sidebarbackup"
+write_sidebar_backup "$AS/sidebar.sidebarbackup"
 run_app_settings apply
 assert_eq "$RC" 0
 placed="$(ls "$(sidebar_support)")"
 assert_contains "$placed" "2.2.5_"
 assert_contains "$placed" "_AAAAAAAA.sidebarbackup"
-cmp -s "$AD/sidebar.sidebarbackup" "$(sidebar_support)/$placed" || fail "placed copy differs"
+cmp -s "$AS/sidebar.sidebarbackup" "$(sidebar_support)/$placed" || fail "placed copy differs"
 assert_contains "$OUT" "Settings > Expert > Backups"
 run_app_settings apply
 assert_eq "$(ls "$(sidebar_support)" | wc -l | tr -d ' ')" 1
@@ -733,7 +776,7 @@ assert_contains "$OUT" "Sidebar: backup already in its list"
 
 it "apps apply dry run does not add the Sidebar backup"
 app_sandbox
-write_sidebar_backup "$AD/sidebar.sidebarbackup"
+write_sidebar_backup "$AS/sidebar.sidebarbackup"
 run_app_settings apply --dry-run
 assert_eq "$RC" 0
 assert_contains "$OUT" "Sidebar: would add"
@@ -742,34 +785,51 @@ assert_contains "$OUT" "Sidebar: would add"
 it "apps apply skips apps that are not installed"
 app_sandbox
 rmdir "$AAPPS/AltTab.app" "$AAPPS/Sidebar.app"
-write_alttab "$AD/alttab.plist" appearanceTheme=2
-write_sidebar_backup "$AD/sidebar.sidebarbackup"
+write_alttab "$AS/alttab.plist" appearanceTheme=2
+write_sidebar_backup "$AS/sidebar.sidebarbackup"
 run_app_settings apply
 assert_eq "$RC" 0
 assert_contains "$OUT" "AltTab: not installed"
 assert_contains "$OUT" "Sidebar: not installed"
 assert_eq "$(cat "$ALOG")" ""
 
-it "the tracked app settings hold no license data"
-for f in "$REPO/apps/alttab.plist" "$REPO/apps/sidebar.sidebarbackup"; do
-  [ -f "$f" ] || fail "missing $f"
-done
-leaks="$(py '
-def keys(value):
-    if isinstance(value, dict):
-        for k, v in value.items():
-            yield k
-            yield from keys(v)
-    elif isinstance(value, list):
-        for v in value:
-            yield from keys(v)
-alttab = plistlib.load(open(sys.argv[1], "rb"))
-sidebar = plistlib.load(open(sys.argv[2], "rb"))
-found = list(keys(alttab)) + list(keys(sidebar))
-found += list(keys(json.loads(sidebar["portableSettingsData"])))
-found += list(keys(plistlib.loads(sidebar["preferencesPlist"])))
-print([k for k in found if "licen" in k.lower()])' "$REPO/apps/alttab.plist" "$REPO/apps/sidebar.sidebarbackup")"
-assert_eq "$leaks" "[]"
+it "apps export writes private files: dir 700, files 600"
+app_sandbox
+write_alttab "$(alttab_domain)" appearanceTheme=2
+write_sidebar_backup "$(sidebar_support)/2.2.5_20260923-080000_AAAAAAAA.sidebarbackup"
+run_app_settings export
+assert_eq "$RC" 0
+assert_eq "$(stat -f %Lp "$AS")" 700
+assert_eq "$(stat -f %Lp "$AS/alttab.plist")" 600
+assert_eq "$(stat -f %Lp "$AS/sidebar.sidebarbackup")" 600
+chmod 644 "$AS/alttab.plist"
+write_alttab "$(alttab_domain)" appearanceTheme=3
+run_app_settings export
+assert_eq "$(stat -f %Lp "$AS/alttab.plist")" 600
+
+it "apps apply skips an installed app without a settings file"
+app_sandbox
+run_app_settings apply
+assert_eq "$RC" 0
+assert_contains "$OUT" "AltTab: no settings in $AS - skipped"
+assert_contains "$OUT" "Sidebar: no settings in $AS - skipped"
+assert_eq "$(cat "$ALOG")" ""
+
+it "apps export creates the settings dir; without --dir it uses the config dir"
+app_sandbox
+write_alttab "$(alttab_domain)" appearanceTheme=2
+run_app_settings export
+assert_eq "$RC" 0
+[ -f "$AS/alttab.plist" ] || fail "no alttab.plist in the new settings dir"
+OUT="$(env -u XDG_CONFIG_HOME HOME="$AH" PATH="$AB:$PATH" APPLICATIONS_DIR="$AAPPS" python3 "$AD/app_settings.py" export 2>&1)"
+assert_eq "$?" 0
+[ -f "$AH/.config/macos-base-config/alttab.plist" ] || fail "default dir not used: $OUT"
+
+it "no app settings are tracked in this public repo"
+tracked="$(git -C "$REPO" ls-files apps)"
+assert_eq "$tracked" "apps/app_settings.py"
+assert_contains "$(cat "$REPO/.gitignore")" "apps/*.plist"
+assert_contains "$(cat "$REPO/.gitignore")" "apps/*.sidebarbackup"
 
 # --- end to end: bootstrap.sh in a sandbox ----------------------------------
 # stub PATH LABEL [EXIT] -> executable that appends "LABEL <args>" to $LOG
@@ -870,6 +930,7 @@ assert_contains "$(cat "$LOG")" "python3 macos-defaults.py"
 
 it "manual step lists every manual hint"
 make_sandbox
+mkdir -p "$SB/Applications/AltTab.app"
 run_bootstrap manual
 assert_eq "$RC" 0
 assert_contains "$OUT" "Karabiner permissions"
@@ -905,16 +966,56 @@ run_bootstrap --no-pull manual editor vscode
 assert_eq "$(headers)" "== vscode == editor == manual == summary "
 assert_contains "$(cat "$LOG")" "python3 apply.py"
 
-it "apps runs right after editor and applies apps/app_settings.py"
+it "apps runs right after editor and applies the settings dir"
 make_sandbox
+mkdir -p "$SB/home/.config/macos-base-config"
 run_bootstrap --no-pull manual apps editor
 assert_eq "$(headers)" "== editor == apps == manual == summary "
-assert_contains "$(cat "$LOG")" "python3 app_settings.py apply"
+assert_contains "$(cat "$LOG")" "python3 app_settings.py apply --dir $SB/home/.config/macos-base-config"
 
-it "manual step points to the Sidebar backup to restore"
+it "apps skips without a settings dir"
+make_sandbox
+run_bootstrap --no-pull apps
+assert_eq "$RC" 0
+assert_contains "$OUT" "  apps       skipped  (no settings dir: $SB/home/.config/macos-base-config)"
+assert_not_contains "$(cat "$LOG")" "app_settings.py"
+
+it "a relative --config reads the settings next to it, not apps/ of the repo"
+make_sandbox
+mkdir -p "$SB/home/cfg"
+echo 'BOOTSTRAP_STEPS=""' > "$SB/home/cfg/config.sh"
+old_pwd="$PWD"
+cd "$SB/home/cfg"
+run_bootstrap --no-pull --config config.sh apps
+cd "$old_pwd"
+assert_eq "$RC" 0
+assert_contains "$(cat "$LOG")" "python3 app_settings.py apply --dir $SB/home/cfg"
+
+it "the settings dir follows --config, spaces included"
+make_sandbox
+mkdir -p "$SB/home/Cloud Docs/mbc"
+echo 'BOOTSTRAP_STEPS=""' > "$SB/home/Cloud Docs/mbc/config.sh"
+run_bootstrap --no-pull --config "$SB/home/Cloud Docs/mbc/config.sh" apps
+assert_eq "$RC" 0
+assert_contains "$(cat "$LOG")" "python3 app_settings.py apply --dir $SB/home/Cloud Docs/mbc"
+
+it "manual step names the Sidebar restore and licenses only for installed apps"
 make_sandbox
 run_bootstrap manual
-assert_contains "$OUT" "Settings > Expert > Backups"
+assert_not_contains "$OUT" "Sidebar settings"
+assert_not_contains "$OUT" "Licenses"
+mkdir -p "$SB/Applications/AltTab.app"
+run_bootstrap manual
+assert_contains "$OUT" "Licenses: enter the AltTab (Pro) key from your password manager"
+assert_not_contains "$OUT" "Sidebar settings"
+mkdir -p "$SB/Applications/Sidebar.app"
+run_bootstrap manual
+assert_contains "$OUT" "Licenses: enter the AltTab (Pro) and Sidebar keys from your password manager"
+assert_not_contains "$OUT" "Sidebar settings"
+sandbox_config 'BOOTSTRAP_STEPS=""'
+touch "$SB/home/.config/macos-base-config/sidebar.sidebarbackup"
+run_bootstrap manual
+assert_contains "$OUT" "Sidebar settings: Settings > Expert > Backups > restore the backup the apps step added"
 
 it "brew runs right after repos"
 make_sandbox
@@ -924,6 +1025,7 @@ assert_eq "$(headers)" "== repos == brew == manual == summary "
 it "dry run hands --dry-run to every sub-tool and runs no git"
 make_sandbox
 with_jetbrains
+mkdir -p "$SB/home/.config/macos-base-config"
 run_bootstrap --dry-run --skip dotfiles
 assert_eq "$RC" 0
 log="$(cat "$LOG")"
@@ -932,7 +1034,7 @@ assert_contains "$log" "python3 macos-defaults.py --dry-run"
 assert_contains "$log" "jetbrains-apply --dry-run"
 assert_contains "$log" "port-vscode --dry-run"
 assert_contains "$log" "python3 apply.py --dry-run"
-assert_contains "$log" "python3 app_settings.py apply --dry-run"
+assert_contains "$log" "python3 app_settings.py apply --dir $SB/home/.config/macos-base-config --dry-run"
 assert_not_contains "$log" "git "
 while IFS= read -r line; do assert_contains "$line" "--dry-run"; done < "$LOG"
 assert_contains "$OUT" "+ git -C $SB/parent/intelli-key-port pull --ff-only"
@@ -1686,7 +1788,8 @@ assert_eq "$DOTFILES_LOCAL_RC" ""
 assert_eq "$BREW_BUNDLE_EXTRA" ""
 assert_eq "$MACOS_DISABLE_GATEKEEPER" 0
 assert_eq "$PACKAGES" "@base"
-for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP PACKAGES BREW_BUNDLE_EXTRA MACOS_DISABLE_GATEKEEPER DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG DOTFILES_LOCAL_RC; do
+assert_eq "$SETTINGS_DIR" "$REPO"
+for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP PACKAGES BREW_BUNDLE_EXTRA MACOS_DISABLE_GATEKEEPER SETTINGS_DIR DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG DOTFILES_LOCAL_RC; do
   assert_contains "$(cat "$REPO/config.example.sh")" "$key="
 done
 
