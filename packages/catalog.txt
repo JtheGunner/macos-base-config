@@ -17,3 +17,5 @@ karabiner-elements  | cask | karabiner-elements     | Karabiner-Elements | base 
 alt-tab             | cask | alt-tab                | AltTab             | base | Windows-style Alt+Tab window switching
 sidebar             | cask | otuerk/sidebar/sidebar | Sidebar            | base | Windows-style taskbar, Dock replacement
 font-jetbrains-mono | cask | font-jetbrains-mono    | -                  | base | JetBrains Mono, the editor font (editor step)
+
+nas-mount           | applet | packages/nas-mount.applescript | nas-mount | remote | Mount the NAS shares in NAS_MOUNT_SHARES (credentials from the Keychain)

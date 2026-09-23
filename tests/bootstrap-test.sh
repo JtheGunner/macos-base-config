@@ -312,6 +312,24 @@ assert_eq "$(APPLICATIONS_DIR="$TMP/apps3" PACKAGE_CATALOG="$f" manual_package_h
 mkdir -p "$TMP/apps3/FileZilla.app"
 assert_eq "$(APPLICATIONS_DIR="$TMP/apps3" PACKAGE_CATALOG="$f" manual_package_hints "filezilla")" ""
 
+it "the shipped catalog has nas-mount, its template renders one try per share"
+assert_eq "$(select_packages nas-mount)" "nas-mount"
+out="$(NAS_MOUNT_SHARES="smb://nas/a
+  afp://nas/b" applet_source "$REPO/packages/nas-mount.applescript")"
+assert_contains "$out" '{"smb://nas/a", "afp://nas/b"}'
+assert_contains "$out" "try"
+assert_contains "$out" "mount volume"
+assert_not_contains "$out" "@@"
+out="$(applet_source "$TMP/no-template" 2>&1)"; rc=$?
+assert_eq "$rc" 1
+
+it "applet_source keeps an & in a share, also under the bash on PATH (5.2+ patsub_replacement)"
+for shell in /bin/bash "$(command -v bash)"; do
+  out="$(NAS_MOUNT_SHARES="smb://nas/a&b" HERE="$REPO" "$shell" -c \
+    '. "$HERE/lib/packages.sh"; applet_source "$HERE/packages/nas-mount.applescript"')"
+  assert_contains "$out" '{"smb://nas/a&b"}'
+done
+
 it "missing explicit config is exit 2"
 out="$(load_config "$TMP/missing.sh" 2>&1)"; rc=$?
 assert_eq "$rc" 2
@@ -432,6 +450,22 @@ assert_eq "$out" "$TMP/priv"
 write_config 'BOOTSTRAP_STEPS=""' >/dev/null
 out="$(cd "$TMP" && load_config config.sh && echo "$SETTINGS_DIR")"
 assert_eq "$out" "$TMP"
+
+it "NAS_MOUNT_SHARES: empty by default; smb, afp, nfs URLs over several lines load"
+XDG_CONFIG_HOME="$TMP/none" load_config ""
+assert_eq "$NAS_MOUNT_SHARES" ""
+f="$(write_config 'NAS_MOUNT_SHARES="smb://10.0.12.20/privat
+  afp://nas.local/data	nfs://nas.local/export/media"')"
+load_config "$f"; rc=$?
+assert_eq "$rc" 0
+
+it "a NAS share that isn't a plain smb, afp or nfs URL is exit 2"
+for bad in 'http://nas/data' 'smb://' 'smb://nas/a"b' 'smb://nas/*'; do
+  f="$(write_config "NAS_MOUNT_SHARES='smb://nas/ok $bad'")"
+  out="$(load_config "$f" 2>&1)"; rc=$?
+  assert_eq "$rc" 2
+  assert_contains "$out" "NAS_MOUNT_SHARES: not an smb://, afp:// or nfs:// URL: $bad"
+done
 
 it "an unknown package in the config is exit 2"
 f="$(write_config 'PACKAGES="@base bogus"')"
@@ -1579,6 +1613,70 @@ run_bootstrap --no-pull brew
 SB_CATALOG=""
 assert_contains "$(cat "$LOG")" '  | brew "pipx"'
 
+# nas_sandbox [CONFIG_LINE...] -> sandbox with nas-mount selected; osacompile
+# "builds" an app dir holding the source, osadecompile prints it back
+nas_sandbox() {
+  make_sandbox
+  sandbox_config 'PACKAGES="nas-mount"' "$@"
+  printf '#!/bin/bash\necho "osacompile $*" >> "%s"\nmkdir -p "$2" && cp "$3" "$2/source"\n' "$LOG" > "$SB/bin/osacompile"
+  printf '#!/bin/bash\ncat "$1/source"\n' > "$SB/bin/osadecompile"
+  chmod +x "$SB/bin/osacompile" "$SB/bin/osadecompile"
+}
+nas_app() { echo "$SB/Applications/nas-mount.app"; }
+
+it "extras builds nas-mount with one try per share"
+nas_sandbox 'NAS_MOUNT_SHARES="smb://nas/a smb://nas/b"'
+run_bootstrap --no-pull extras
+assert_eq "$RC" 0
+assert_contains "$(cat "$(nas_app)/source")" '{"smb://nas/a", "smb://nas/b"}'
+assert_contains "$OUT" "nas-mount: installed"
+assert_contains "$OUT" "  extras     ok"
+[ -z "$(ls -A "$SB/tmp")" ] || fail "temp build dir left behind"
+
+it "an unchanged nas-mount is left alone; a changed one replaced, the old one in the Trash"
+run_bootstrap --no-pull extras
+assert_contains "$OUT" "nas-mount: unchanged"
+[ -e "$SB/home/.Trash" ] && fail "trashed an unchanged app"
+sandbox_config 'PACKAGES="nas-mount"' 'NAS_MOUNT_SHARES="smb://nas/c"'
+run_bootstrap --no-pull extras
+assert_contains "$OUT" "nas-mount: updated (old one in the Trash)"
+assert_contains "$(cat "$(nas_app)/source")" '{"smb://nas/c"}'
+assert_contains "$(cat "$SB/home/.Trash"/nas-mount-*.app/source)" '"smb://nas/a"'
+
+it "a failing build fails nas-mount and keeps the installed app"
+nas_sandbox 'NAS_MOUNT_SHARES="smb://nas/new"'
+mkdir -p "$(nas_app)"; echo old > "$(nas_app)/source"
+printf '#!/bin/bash\necho "compile error" >&2\nexit 1\n' > "$SB/bin/osacompile"
+run_bootstrap --no-pull extras
+assert_eq "$RC" 1
+assert_contains "$OUT" "  extras     failed   (failed: nas-mount)"
+assert_contains "$OUT" "compile error"
+assert_eq "$(cat "$(nas_app)/source")" old
+
+it "nas-mount without shares is skipped with a hint"
+nas_sandbox
+run_bootstrap --no-pull extras
+assert_eq "$RC" 0
+assert_contains "$OUT" "nas-mount: skipped - set NAS_MOUNT_SHARES in the config"
+assert_contains "$OUT" "  extras     skipped  (set NAS_MOUNT_SHARES in the config for: nas-mount)"
+assert_not_contains "$(cat "$LOG")" "osacompile"
+[ -e "$(nas_app)" ] && fail "built without shares"
+extras_sandbox "sass"
+printf '%s\n' 'nas-mount | applet | packages/nas-mount.applescript | nas-mount | remote | NAS' >> "$SB_CATALOG"
+sandbox_config 'PACKAGES="sass nas-mount"'
+rm "$SB/bin/npm"
+run_bootstrap --no-pull extras
+SB_CATALOG=""
+assert_contains "$OUT" "  extras     skipped  (install Node first (e.g. nvm install --lts) for: sass; set NAS_MOUNT_SHARES in the config for: nas-mount)"
+
+it "dry run shows the nas-mount build, builds nothing"
+nas_sandbox 'NAS_MOUNT_SHARES="smb://nas/a"'
+run_bootstrap --dry-run --no-pull extras
+assert_eq "$RC" 0
+assert_contains "$OUT" "+ osacompile -o $(nas_app) (packages/nas-mount.applescript with NAS_MOUNT_SHARES)"
+assert_eq "$(cat "$LOG")" ""
+[ -e "$(nas_app)" ] && fail "built in dry run"
+
 # --- the dotfiles step ------------------------------------------------------
 # dotfiles_stub [EXIT] -> dotfiles/bootstrap.sh stub that also logs the
 # DOTFILES_TERMINALS it was given
@@ -1789,7 +1887,8 @@ assert_eq "$BREW_BUNDLE_EXTRA" ""
 assert_eq "$MACOS_DISABLE_GATEKEEPER" 0
 assert_eq "$PACKAGES" "@base"
 assert_eq "$SETTINGS_DIR" "$REPO"
-for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP PACKAGES BREW_BUNDLE_EXTRA MACOS_DISABLE_GATEKEEPER SETTINGS_DIR DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG DOTFILES_LOCAL_RC; do
+assert_eq "$NAS_MOUNT_SHARES" ""
+for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP PACKAGES BREW_BUNDLE_EXTRA MACOS_DISABLE_GATEKEEPER SETTINGS_DIR NAS_MOUNT_SHARES DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG DOTFILES_LOCAL_RC; do
   assert_contains "$(cat "$REPO/config.example.sh")" "$key="
 done
 

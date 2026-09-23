@@ -56,7 +56,7 @@ the summary at the end (exit code 1), it never aborts the rest.
    │
    ├─ repos       clone / pull each sibling repo (repos.txt) into the parent folder
    ├─ brew        Homebrew (installed if missing) + the selected packages (default: Karabiner, AltTab, Sidebar, font)
-   ├─ extras      selected packages from outside Homebrew: install scripts, npm, pipx, uv, go
+   ├─ extras      selected packages from outside Homebrew: install scripts, npm, pipx, uv, go; the nas-mount app
    ├─ karabiner   Karabiner config → ~/.config/karabiner   (starts Karabiner once if needed)
    ├─ keyboard    Custom Swiss German layout → ~/Library/Keyboard Layouts, enabled + selected
    ├─ macos       macos-defaults.py: system hotkeys, Finder shortcut, font smoothing (+ Gatekeeper, opt-in)
@@ -129,6 +129,7 @@ cp config.example.sh ~/.config/macos-base-config/config.sh
 | `BREW_BUNDLE_EXTRA`         | —                   | extra Brewfile for apps outside the catalog, installed after the selected packages                                    |
 | `MACOS_DISABLE_GATEKEEPER`  | `0`                 | `1` = allow apps from anywhere (`sudo spctl --master-disable`); macOS asks you to confirm in Privacy & Security       |
 | `SETTINGS_DIR`              | config file's dir   | private app settings (`alttab.plist`, `sidebar.sidebarbackup`), see [App settings](#app-settings)                     |
+| `NAS_MOUNT_SHARES`          | —                   | smb:// / afp:// / nfs:// shares the `nas-mount` app mounts, see [NAS shares](#nas-shares-nas-mount)             |
 | `DOTFILES_DIR`              | `<parent>/dotfiles` | dotfiles checkout to use, e.g. an existing `~/Git/dotfiles`                                                            |
 | `DOTFILES_URL`              | URL in `repos.txt`  | clone URL, e.g. a fork                                                                                                 |
 | `DOTFILES_ASSUME_YES`       | `0`                 | `1` = repoint stow links from another checkout without asking                                                          |
@@ -299,6 +300,7 @@ Where a package comes from decides which step installs it:
 | `pipx`    | `pipx install`                                 | `extras` |
 | `uv`      | `uv tool install`                              | `extras` |
 | `go`      | `go install …@latest`                          | `extras` |
+| `applet`  | built from a template in this repo (`nas-mount`) | `extras` |
 | `manual`  | you: the `manual` step prints the download link | `manual` |
 
 | `PACKAGES`                    | Installs                                        |
@@ -331,6 +333,27 @@ The `@base` packages:
   `go install` and most install scripts put commands) count too; put them on
   your shell's `PATH` to use what lands there.
 - Install scripts are fetched over https only.
+
+### NAS shares (nas-mount)
+
+`nas-mount` is a small app that mounts your NAS shares in Finder; open it or
+add it to your login items. Select it with `nas-mount` in `PACKAGES` and list
+the shares in the config:
+
+```sh
+PACKAGES="@base nas-mount"
+NAS_MOUNT_SHARES="smb://nas.local/data smb://nas.local/media"
+```
+
+- The `extras` step builds `/Applications/nas-mount.app` from
+  [`packages/nas-mount.applescript`](packages/nas-mount.applescript). Each
+  share has its own `try`, so one that is offline doesn't stop the rest.
+- No credentials in the config or the app: Finder asks once and keeps them in
+  the Keychain.
+- Changed shares rebuild the app on the next run; the old one goes to the
+  Trash. Unchanged shares leave it alone.
+- Shares are separated by spaces or newlines; write a space inside a path as
+  `%20`.
 
 ### App settings
 
