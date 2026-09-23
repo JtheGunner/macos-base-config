@@ -268,6 +268,10 @@ step_editor() {
   run_in "$HERE/editor-settings" python3 apply.py
 }
 
+step_apps() {
+  run_in "$HERE/apps" python3 app_settings.py apply
+}
+
 LOCAL_RC_BEGIN="# >>> macos-base-config >>>"
 LOCAL_RC_END="# <<< macos-base-config <<<"
 
@@ -369,5 +373,6 @@ step_manual() {
   if [ "$MACOS_DISABLE_GATEKEEPER" = 1 ]; then
     echo "  - Gatekeeper: confirm 'Allow applications from: Anywhere' under Privacy & Security"
   fi
+  echo "  - Sidebar settings: Settings > Expert > Backups > restore the backup the apps step added"
   echo "  - Licenses: enter the AltTab (Pro) and Sidebar keys from your password manager"
 }

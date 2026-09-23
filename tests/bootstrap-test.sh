@@ -28,13 +28,13 @@ assert_not_contains() {
 . "$REPO/lib/cli.sh"
 
 it "no steps selects every step in order"
-assert_eq "$(select_steps "" "")" "repos brew karabiner keyboard macos jetbrains vscode editor dotfiles manual"
+assert_eq "$(select_steps "" "")" "repos brew karabiner keyboard macos jetbrains vscode editor apps dotfiles manual"
 
 it "steps run in table order, aliases expand"
 assert_eq "$(select_steps "dotfiles keymaps" "")" "jetbrains vscode dotfiles"
 
 it "skip removes steps, aliases included"
-assert_eq "$(select_steps "" "keymaps dotfiles")" "repos brew karabiner keyboard macos editor manual"
+assert_eq "$(select_steps "" "keymaps dotfiles")" "repos brew karabiner keyboard macos editor apps manual"
 
 it "duplicates collapse"
 assert_eq "$(select_steps "macos macos keymaps jetbrains" "")" "macos jetbrains vscode"
@@ -47,7 +47,7 @@ assert_eq "$(select_steps "keymaps
 dotfiles" "")" "jetbrains vscode dotfiles"
 assert_eq "$(select_steps "" "
   dotfiles
-")" "repos brew karabiner keyboard macos jetbrains vscode editor manual"
+")" "repos brew karabiner keyboard macos jetbrains vscode editor apps manual"
 assert_eq "$(select_steps "$(printf 'macos\tmanual')" "")" "macos manual"
 
 it "unknown step is exit 2 with a message"
@@ -93,7 +93,7 @@ assert_eq "$rc" 2
 
 it "step list names every step and the alias"
 out="$(print_step_list)"
-for s in repos brew karabiner keyboard macos jetbrains vscode editor dotfiles manual keymaps; do
+for s in repos brew karabiner keyboard macos jetbrains vscode editor apps dotfiles manual keymaps; do
   assert_contains "$out" "$s"
 done
 
@@ -398,6 +398,180 @@ assert_eq "$(cat "$d/settings.json")" '{
     "editor.fontSize": '
 assert_contains "$OUT" "Cursor: created"
 
+# --- apps/app_settings.py ---------------------------------------------------
+# app_sandbox -> AH (fake HOME), AD (a copy of apps/ without the tracked
+# settings), AB (stub bin: defaults keeps domains under $AH/defaults-store,
+# osascript and open only log), ALOG (their calls), AAPPS (fake /Applications)
+app_sandbox() {
+  local root
+  root="$(mktemp -d "$TMP/apps.XXXXXX")"
+  AH="$root/home"; AD="$root/apps"; AB="$root/bin"; ALOG="$root/calls.log"; AAPPS="$root/Applications"
+  mkdir -p "$AH" "$AD" "$AB" "$AAPPS/AltTab.app" "$AAPPS/Sidebar.app"
+  : > "$ALOG"
+  cp "$REPO/apps/app_settings.py" "$AD/"
+  cat > "$AB/defaults" <<EOF
+#!/bin/bash
+echo "defaults \$*" >> "$ALOG"
+store="$AH/defaults-store"; mkdir -p "\$store"
+case "\$1" in
+  export) if [ -f "\$store/\$2.plist" ]; then cat "\$store/\$2.plist"; else exit 1; fi ;;
+  import) cp "\$3" "\$store/\$2.plist" ;;
+esac
+EOF
+  printf '#!/bin/bash\necho "osascript $*" >> "%s"\n' "$ALOG" > "$AB/osascript"
+  printf '#!/bin/bash\necho "open $*" >> "%s"\n' "$ALOG" > "$AB/open"
+  chmod +x "$AB"/*
+}
+run_app_settings() {
+  OUT="$(HOME="$AH" PATH="$AB:$PATH" APPLICATIONS_DIR="$AAPPS" python3 "$AD/app_settings.py" "$@" 2>&1)"
+  RC=$?
+}
+# py EXPR... -> run python3 with plistlib, json, sys imported
+py() { python3 -c "import plistlib, json, sys, datetime; $1" "${@:2}"; }
+alttab_domain() { echo "$AH/defaults-store/com.lwouis.alt-tab-macos.plist"; }
+sidebar_support() { echo "$AH/Library/Application Support/at.sidebar.Sidebar"; }
+
+# write_alttab FILE KEY=VALUE... -> XML plist of string values
+write_alttab() {
+  local file="$1"; shift
+  mkdir -p "$(dirname "$file")"
+  py 'plistlib.dump(dict(a.split("=", 1) for a in sys.argv[2:]), open(sys.argv[1], "wb"))' "$file" "$@"
+}
+# write_sidebar_backup FILE -> a backup like Sidebar writes, license included
+write_sidebar_backup() {
+  mkdir -p "$(dirname "$1")"
+  py '
+portable = {"licenseKey": "SECRET-KEY", "licenseCurrentInfo": "x", "daysOfUsage": 9,
+            "lastUsedAt": 1, "useLiveApplicationPreviews": True, "autoHideDelay": 0.5}
+prefs = {"SULastCheckTime": "x", "applicationStatistics": b"{}", "recentlyClosedApps": b"[]",
+         "SidebarCalendarOrderIds": ["CAL-ID"], "applicationWindowCustomNames_x": b"[]",
+         "sidebarStyle": b"[1]", "KeyboardShortcuts_toggleApplicationList": "k",
+         "unlockedWeatherConfiguration": b"[]", "applicationConfigurations": b"[]"}
+backup = {"encryptedLicenseInfo": b"\x01\x02", "formatVersion": 2,
+          "mergesWithExistingPreferences": False, "files": [],
+          "metadata": {"id": "AAAAAAAA-0000-0000-0000-000000000000",
+                       "createdAt": datetime.datetime(2026, 9, 23, 6, 0, 0),
+                       "appVersion": "2.2.5", "configurationVersion": "2.2.5",
+                       "edition": "regular", "reason": "update",
+                       "fromVersion": "2.2.4", "toVersion": "2.2.5"},
+          "portableSettingsData": json.dumps(portable).encode(),
+          "preferencesPlist": plistlib.dumps(prefs, fmt=plistlib.FMT_BINARY)}
+plistlib.dump(backup, open(sys.argv[1], "wb"), fmt=plistlib.FMT_BINARY)' "$1"
+}
+
+it "apps export keeps AltTab settings, drops runtime and license keys"
+app_sandbox
+write_alttab "$(alttab_domain)" appearanceTheme=2 hideStatusIcons=true \
+  "NSWindow Frame SettingsWindow=1 2 3 4" SULastCheckTime=x MSAppCenterInstallId=y \
+  "NSStatusItem VisibleCC Item-0=false" proLicenseKey=nope
+write_sidebar_backup "$(sidebar_support)/2.2.5_20260923-080000_AAAAAAAA.sidebarbackup"
+run_app_settings export
+assert_eq "$RC" 0
+assert_eq "$(py 'print(sorted(plistlib.load(open(sys.argv[1], "rb"))))' "$AD/alttab.plist")" "['appearanceTheme', 'hideStatusIcons']"
+assert_contains "$(cat "$AD/alttab.plist")" "<?xml"
+
+it "apps export strips the Sidebar license, usage and personal data"
+b="$AD/sidebar.sidebarbackup"
+assert_eq "$(py 'b = plistlib.load(open(sys.argv[1], "rb")); print("encryptedLicenseInfo" in b, b["mergesWithExistingPreferences"])' "$b")" "False True"
+assert_eq "$(py 'm = plistlib.load(open(sys.argv[1], "rb"))["metadata"]; print(sorted(m), m["reason"])' "$b")" "['appVersion', 'configurationVersion', 'createdAt', 'edition', 'id', 'reason'] manual"
+assert_eq "$(py 'b = plistlib.load(open(sys.argv[1], "rb")); print(sorted(json.loads(b["portableSettingsData"])))' "$b")" "['autoHideDelay', 'useLiveApplicationPreviews']"
+assert_eq "$(py 'b = plistlib.load(open(sys.argv[1], "rb")); print(sorted(plistlib.loads(b["preferencesPlist"])))' "$b")" "['KeyboardShortcuts_toggleApplicationList', 'applicationConfigurations', 'sidebarStyle', 'unlockedWeatherConfiguration']"
+assert_not_contains "$(py 'print(open(sys.argv[1], "rb").read())' "$b")" "SECRET-KEY"
+assert_contains "$OUT" "2.2.5_20260923-080000_AAAAAAAA.sidebarbackup"
+
+it "apps export leaves an unchanged Sidebar export alone"
+before="$(py 'print(open(sys.argv[1], "rb").read())' "$b")"
+write_sidebar_backup "$(sidebar_support)/2.2.5_20260923-090000_BBBBBBBB.sidebarbackup"
+touch "$(sidebar_support)/2.2.5_20260923-090000_BBBBBBBB.sidebarbackup"
+run_app_settings export
+assert_eq "$RC" 0
+assert_eq "$(py 'print(open(sys.argv[1], "rb").read())' "$b")" "$before"
+assert_contains "$OUT" "Sidebar: unchanged"
+
+it "apps apply merges AltTab settings, keeps other keys, restarts AltTab"
+app_sandbox
+write_alttab "$AD/alttab.plist" appearanceTheme=2 hideStatusIcons=true
+write_alttab "$(alttab_domain)" appearanceTheme=0 SULastCheckTime=x
+run_app_settings apply
+assert_eq "$RC" 0
+assert_eq "$(py 'd = plistlib.load(open(sys.argv[1], "rb")); print(d["appearanceTheme"], d["hideStatusIcons"], d["SULastCheckTime"])' "$(alttab_domain)")" "2 true x"
+log="$(cat "$ALOG")"
+assert_contains "$log" 'osascript -e tell application "AltTab" to quit'
+assert_contains "$log" "defaults import com.lwouis.alt-tab-macos"
+assert_contains "$log" "open -a AltTab"
+
+it "apps apply leaves AltTab alone when it already has the settings"
+: > "$ALOG"
+run_app_settings apply
+assert_eq "$RC" 0
+assert_contains "$OUT" "AltTab: already set"
+assert_not_contains "$(cat "$ALOG")" "osascript"
+assert_not_contains "$(cat "$ALOG")" "import"
+
+it "apps apply dry run only lists the AltTab keys it would change"
+app_sandbox
+write_alttab "$AD/alttab.plist" appearanceTheme=2
+write_alttab "$(alttab_domain)" appearanceTheme=0
+run_app_settings apply --dry-run
+assert_eq "$RC" 0
+assert_contains "$OUT" "AltTab: would set appearanceTheme"
+assert_not_contains "$(cat "$ALOG")" "import"
+assert_eq "$(py 'print(plistlib.load(open(sys.argv[1], "rb"))["appearanceTheme"])' "$(alttab_domain)")" 0
+
+it "apps apply adds the Sidebar backup to its backup list once"
+app_sandbox
+write_sidebar_backup "$AD/sidebar.sidebarbackup"
+run_app_settings apply
+assert_eq "$RC" 0
+placed="$(ls "$(sidebar_support)")"
+assert_contains "$placed" "2.2.5_"
+assert_contains "$placed" "_AAAAAAAA.sidebarbackup"
+cmp -s "$AD/sidebar.sidebarbackup" "$(sidebar_support)/$placed" || fail "placed copy differs"
+assert_contains "$OUT" "Settings > Expert > Backups"
+run_app_settings apply
+assert_eq "$(ls "$(sidebar_support)" | wc -l | tr -d ' ')" 1
+assert_contains "$OUT" "Sidebar: backup already in its list"
+
+it "apps apply dry run does not add the Sidebar backup"
+app_sandbox
+write_sidebar_backup "$AD/sidebar.sidebarbackup"
+run_app_settings apply --dry-run
+assert_eq "$RC" 0
+assert_contains "$OUT" "Sidebar: would add"
+[ -e "$(sidebar_support)" ] && fail "written in dry run"
+
+it "apps apply skips apps that are not installed"
+app_sandbox
+rmdir "$AAPPS/AltTab.app" "$AAPPS/Sidebar.app"
+write_alttab "$AD/alttab.plist" appearanceTheme=2
+write_sidebar_backup "$AD/sidebar.sidebarbackup"
+run_app_settings apply
+assert_eq "$RC" 0
+assert_contains "$OUT" "AltTab: not installed"
+assert_contains "$OUT" "Sidebar: not installed"
+assert_eq "$(cat "$ALOG")" ""
+
+it "the tracked app settings hold no license data"
+for f in "$REPO/apps/alttab.plist" "$REPO/apps/sidebar.sidebarbackup"; do
+  [ -f "$f" ] || fail "missing $f"
+done
+leaks="$(py '
+def keys(value):
+    if isinstance(value, dict):
+        for k, v in value.items():
+            yield k
+            yield from keys(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from keys(v)
+alttab = plistlib.load(open(sys.argv[1], "rb"))
+sidebar = plistlib.load(open(sys.argv[2], "rb"))
+found = list(keys(alttab)) + list(keys(sidebar))
+found += list(keys(json.loads(sidebar["portableSettingsData"])))
+found += list(keys(plistlib.loads(sidebar["preferencesPlist"])))
+print([k for k in found if "licen" in k.lower()])' "$REPO/apps/alttab.plist" "$REPO/apps/sidebar.sidebarbackup")"
+assert_eq "$leaks" "[]"
+
 # --- end to end: bootstrap.sh in a sandbox ----------------------------------
 # stub PATH LABEL [EXIT] -> executable that appends "LABEL <args>" to $LOG
 stub() {
@@ -429,7 +603,7 @@ make_sandbox() {
   cp -R "$REPO/bootstrap.sh" "$REPO/lib" "$REPO/repos.txt" "$REPO/Brewfile" "$APP/"
   stub "$APP/ide-keymaps/apply.sh" jetbrains-apply
   stub "$APP/ide-keymaps/port-vscode.sh" port-vscode
-  mkdir -p "$APP/editor-settings"
+  mkdir -p "$APP/editor-settings" "$APP/apps"
   local tool
   for tool in git brew python3 omnishell curl open swift sudo; do stub "$SB/bin/$tool" "$tool"; done
   spctl_stub "assessments enabled"
@@ -519,6 +693,17 @@ run_bootstrap --no-pull manual editor vscode
 assert_eq "$(headers)" "== vscode == editor == manual == summary "
 assert_contains "$(cat "$LOG")" "python3 apply.py"
 
+it "apps runs right after editor and applies apps/app_settings.py"
+make_sandbox
+run_bootstrap --no-pull manual apps editor
+assert_eq "$(headers)" "== editor == apps == manual == summary "
+assert_contains "$(cat "$LOG")" "python3 app_settings.py apply"
+
+it "manual step points to the Sidebar backup to restore"
+make_sandbox
+run_bootstrap manual
+assert_contains "$OUT" "Settings > Expert > Backups"
+
 it "brew runs right after repos"
 make_sandbox
 run_bootstrap --no-pull manual brew repos
@@ -535,6 +720,7 @@ assert_contains "$log" "python3 macos-defaults.py --dry-run"
 assert_contains "$log" "jetbrains-apply --dry-run"
 assert_contains "$log" "port-vscode --dry-run"
 assert_contains "$log" "python3 apply.py --dry-run"
+assert_contains "$log" "python3 app_settings.py apply --dry-run"
 assert_not_contains "$log" "git "
 while IFS= read -r line; do assert_contains "$line" "--dry-run"; done < "$LOG"
 assert_contains "$OUT" "+ git -C $SB/parent/intelli-key-port pull --ff-only"
