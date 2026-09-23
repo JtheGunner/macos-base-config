@@ -116,7 +116,8 @@ def is_license_key(key: str) -> bool:
 
 def default_settings_dir() -> Path:
     config_home = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(config_home) / "macos-base-config"
+    config_dir = Path(config_home) / "macos-base-config"
+    return config_dir / "settings" if (config_dir / "settings").is_dir() else config_dir
 
 
 def write_private(path: Path, data: bytes) -> None:

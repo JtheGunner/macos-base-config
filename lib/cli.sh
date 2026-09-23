@@ -16,7 +16,7 @@ step_description() {
     jetbrains) echo "JetBrains keymap into the PhpStorm / IntelliJ config" ;;
     vscode)    echo "port the keymap to VS Code / Antigravity" ;;
     editor)    echo "editor font settings for every VS Code-family editor" ;;
-    apps)      echo "AltTab settings; Sidebar backup into its backup list, from SETTINGS_DIR (no licenses)" ;;
+    apps)      echo "app settings from SETTINGS_DIR, per apps/registry.txt (no licenses)" ;;
     dotfiles)  echo "run the dotfiles repo's bootstrap (shell, git, tmux, Ghostty)" ;;
     manual)    echo "print the manual, non-scriptable steps" ;;
   esac

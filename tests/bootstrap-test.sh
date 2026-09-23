@@ -490,6 +490,15 @@ out="$(HOME="$TMP/h" load_config "$f" 2>&1)"; rc=$?
 assert_eq "$rc" 2
 assert_contains "$out" "SETTINGS_DIR is not a directory: $TMP/h/nope"
 
+it "SETTINGS_DIR defaults to <config dir>/settings when it exists"
+mkdir -p "$TMP/cfg2/settings"
+echo 'BOOTSTRAP_STEPS=""' > "$TMP/cfg2/config.sh"
+load_config "$TMP/cfg2/config.sh"
+assert_eq "$SETTINGS_DIR" "$TMP/cfg2/settings"
+rmdir "$TMP/cfg2/settings"
+load_config "$TMP/cfg2/config.sh"
+assert_eq "$SETTINGS_DIR" "$TMP/cfg2"
+
 it "a relative SETTINGS_DIR or --config resolves to an absolute path"
 mkdir -p "$TMP/priv"
 f="$(write_config 'SETTINGS_DIR="priv"')"
@@ -1025,7 +1034,10 @@ assert_eq "$RC" 0
 [ -f "$AS/alt-tab.plist" ] || fail "no alttab.plist in the new settings dir"
 OUT="$(env -u XDG_CONFIG_HOME HOME="$AH" PATH="$AB:$PATH" APPLICATIONS_DIR="$AAPPS" python3 "$AD/app_settings.py" export 2>&1)"
 assert_eq "$?" 0
-[ -f "$AH/.config/macos-base-config/alt-tab.plist" ] || fail "default dir not used: $OUT"
+[ -f "$AH/.config/macos-base-config/alt-tab.plist" ] || fail "flat default dir not used: $OUT"
+mkdir -p "$AH/.config/macos-base-config/settings"
+OUT="$(env -u XDG_CONFIG_HOME HOME="$AH" PATH="$AB:$PATH" APPLICATIONS_DIR="$AAPPS" python3 "$AD/app_settings.py" export 2>&1)"
+[ -f "$AH/.config/macos-base-config/settings/alt-tab.plist" ] || fail "settings/ not used: $OUT"
 
 it "no app settings are tracked in this public repo"
 tracked="$(git -C "$REPO" ls-files apps)"

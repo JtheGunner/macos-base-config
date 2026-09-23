@@ -128,7 +128,7 @@ cp config.example.sh ~/.config/macos-base-config/config.sh
 | `PACKAGES`                  | `@base`             | packages to install from the [catalog](#-apps-and-tools): ids, `@category`, `@all`; a leading `-` removes; `""` = none |
 | `BREW_BUNDLE_EXTRA`         | —                   | extra Brewfile for apps outside the catalog, installed after the selected packages                                    |
 | `MACOS_DISABLE_GATEKEEPER`  | `0`                 | `1` = allow apps from anywhere (`sudo spctl --master-disable`); macOS asks you to confirm in Privacy & Security       |
-| `SETTINGS_DIR`              | config file's dir   | private app settings (`alttab.plist`, `sidebar.sidebarbackup`), see [App settings](#app-settings)                     |
+| `SETTINGS_DIR`              | `settings/` next to `config.sh` | private app settings (`alt-tab.plist`, `sidebar.sidebarbackup`, …), see [App settings](#app-settings)       |
 | `NAS_MOUNT_SHARES`          | —                   | smb:// / afp:// / nfs:// shares the `nas-mount` app mounts, see [NAS shares](#nas-shares-nas-mount)             |
 | `DOTFILES_DIR`              | `<parent>/dotfiles` | dotfiles checkout to use, e.g. an existing `~/Git/dotfiles`                                                            |
 | `DOTFILES_URL`              | URL in `repos.txt`  | clone URL, e.g. a fork                                                                                                 |
@@ -381,26 +381,37 @@ NAS_MOUNT_SHARES="smb://nas.local/data smb://nas.local/media"
 
 ### App settings
 
-The `apps` step brings your AltTab and Sidebar settings onto the Mac. They
-are **private and never part of this public repo**. They live in your
-settings directory, `SETTINGS_DIR`, which by default is the folder of your
-config file (`~/.config/macos-base-config/`). **No license is ever
-exported**: enter those from your password manager once per Mac.
+The `apps` step brings your app settings onto the Mac. Which apps, and where
+each one keeps its settings, is listed in [`apps/registry.txt`](apps/registry.txt).
+The settings themselves are **private and never part of this public repo**:
+they live in your settings directory, `SETTINGS_DIR`, by default
+`settings/` next to your config file
+(`~/.config/macos-base-config/settings/`, or the config folder itself if it
+has no `settings/`). **No license is ever exported**: enter those from your
+password manager once per Mac.
 
 |    | App     | File in `SETTINGS_DIR`                                                                                 | On `./bootstrap.sh apps`                                                          |
 |:--:|---------|--------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------|
-| 🔀 | AltTab  | `alttab.plist`: its preferences, minus window frames, update and telemetry state                       | merged into its preferences; AltTab restarts. Unchanged settings leave it running  |
+| 🔀 | AltTab  | `alt-tab.plist`: its preferences, minus window frames, update and telemetry state                      | merged into its preferences; a running AltTab restarts. Unchanged settings leave it alone |
 | 📌 | Sidebar | `sidebar.sidebarbackup`: a Sidebar backup without license, usage data, statistics, calendars or window state | added to Sidebar's backup list; restore it there (Settings → Expert → Backups)     |
 
 Everything is optional: an app that isn't installed, or has no file in the
 settings directory, is skipped. Without a settings directory the step is
 skipped.
 
+Adding an app is one line in the registry, in one of three kinds:
+
+| Kind       | For                                   | Export                                                  | Apply                                                   |
+|------------|---------------------------------------|---------------------------------------------------------|---------------------------------------------------------|
+| `defaults` | a preferences domain (most Mac apps)  | the domain without window / update / telemetry state and without license or token keys | merged into the domain; a running app is restarted |
+| `file`     | an app with a settings file           | the file as it is                                       | copied in; the old file is kept as `.bak-<time>`        |
+| `sidebar`  | Sidebar's backup format               | the newest backup, stripped of license and usage data   | added to Sidebar's backup list                          |
+
 To save the settings of this Mac (for Sidebar, first create a backup in
 Sidebar → Settings → Expert → Backups → *Create backup*):
 
 ```sh
-python3 apps/app_settings.py export                 # into ~/.config/macos-base-config
+python3 apps/app_settings.py export                 # into the default settings dir
 python3 apps/app_settings.py export --dir <dir>     # or into your SETTINGS_DIR
 ```
 
