@@ -3,11 +3,12 @@
 # Sourced; defines data and functions only, no side effects.
 
 # Execution order. Every name has a step_<name> function in lib/steps.sh.
-ALL_STEPS="repos karabiner macos jetbrains vscode dotfiles manual"
+ALL_STEPS="repos brew karabiner macos jetbrains vscode dotfiles manual"
 
 step_description() {
   case "$1" in
     repos)     echo "clone missing / pull existing sibling repos (repos.txt)" ;;
+    brew)      echo "install Homebrew if missing, then the apps and fonts in the Brewfile" ;;
     karabiner) echo "apply the Karabiner config (needs Karabiner-Elements)" ;;
     macos)     echo "macOS defaults: system hotkeys, Finder shortcut, font smoothing" ;;
     jetbrains) echo "JetBrains keymap into the PhpStorm / IntelliJ config" ;;

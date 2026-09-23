@@ -12,6 +12,12 @@ BOOTSTRAP_STEPS=""
 # Steps (or aliases) never to run on this machine, e.g. "karabiner".
 BOOTSTRAP_SKIP=""
 
+# --- brew step ----------------------------------------------------------------
+
+# Extra Brewfile for apps only this machine needs, installed after the repo's
+# Brewfile, e.g. "~/.config/macos-base-config/Brewfile". Empty = none.
+BREW_BUNDLE_EXTRA=""
+
 # --- dotfiles step ------------------------------------------------------------
 
 # Checkout to use, cloned there if missing. Empty = next to this repo

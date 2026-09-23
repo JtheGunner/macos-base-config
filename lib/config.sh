@@ -19,14 +19,14 @@ expand_home() {
   esac
 }
 
-# load_config [PATH] -> sets BOOTSTRAP_STEPS, BOOTSTRAP_SKIP and the DOTFILES_*
-# values, and CONFIG_FILE (the file in use - PATH or the default path, even
+# load_config [PATH] -> sets BOOTSTRAP_STEPS, BOOTSTRAP_SKIP, BREW_BUNDLE_EXTRA,
+# the DOTFILES_* values, and CONFIG_FILE (the file in use - PATH or the default path, even
 # when that doesn't exist yet). Without PATH the default file is used if it
 # exists. Return 2 on a missing explicit file, a syntax error, or an invalid
 # value.
 load_config() {
   local config_file="${1:-}"
-  BOOTSTRAP_STEPS=""; BOOTSTRAP_SKIP=""
+  BOOTSTRAP_STEPS=""; BOOTSTRAP_SKIP=""; BREW_BUNDLE_EXTRA=""
   DOTFILES_DIR=""; DOTFILES_URL=""; DOTFILES_ASSUME_YES=0
   DOTFILES_TERMINALS=""; DOTFILES_OMNISHELL_CONFIG=""; DOTFILES_LOCAL_RC=""
 
@@ -54,6 +54,7 @@ validate_config() {
   local config_file="$1"
   DOTFILES_DIR="$(expand_home "$DOTFILES_DIR")"
   DOTFILES_OMNISHELL_CONFIG="$(expand_home "$DOTFILES_OMNISHELL_CONFIG")"
+  BREW_BUNDLE_EXTRA="$(expand_home "$BREW_BUNDLE_EXTRA")"
 
   if ! select_steps "$BOOTSTRAP_STEPS" "$BOOTSTRAP_SKIP" >/dev/null; then
     echo "  in $config_file (BOOTSTRAP_STEPS / BOOTSTRAP_SKIP)" >&2
@@ -64,6 +65,10 @@ validate_config() {
     *) echo "bootstrap.sh: $config_file: DOTFILES_ASSUME_YES must be 0 or 1, got '$DOTFILES_ASSUME_YES'" >&2
        return 2 ;;
   esac
+  if [ -n "$BREW_BUNDLE_EXTRA" ] && { [ ! -f "$BREW_BUNDLE_EXTRA" ] || [ ! -r "$BREW_BUNDLE_EXTRA" ]; }; then
+    echo "bootstrap.sh: $config_file: BREW_BUNDLE_EXTRA is not a readable file: $BREW_BUNDLE_EXTRA" >&2
+    return 2
+  fi
   if [ -n "$DOTFILES_OMNISHELL_CONFIG" ] && { [ ! -f "$DOTFILES_OMNISHELL_CONFIG" ] || [ ! -r "$DOTFILES_OMNISHELL_CONFIG" ]; }; then
     echo "bootstrap.sh: $config_file: DOTFILES_OMNISHELL_CONFIG is not a readable file: $DOTFILES_OMNISHELL_CONFIG" >&2
     return 2

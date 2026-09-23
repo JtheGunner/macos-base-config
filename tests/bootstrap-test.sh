@@ -6,7 +6,7 @@
 #
 # End-to-end cases run bootstrap.sh inside a throwaway sandbox: a copy of the
 # scripts next to stub sibling repos, a fake HOME, and stub tools (git, brew,
-# python3, omnishell) that only log their arguments.
+# python3, omnishell, curl, open) that only log their arguments.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -27,13 +27,13 @@ assert_not_contains() {
 . "$REPO/lib/cli.sh"
 
 it "no steps selects every step in order"
-assert_eq "$(select_steps "" "")" "repos karabiner macos jetbrains vscode dotfiles manual"
+assert_eq "$(select_steps "" "")" "repos brew karabiner macos jetbrains vscode dotfiles manual"
 
 it "steps run in table order, aliases expand"
 assert_eq "$(select_steps "dotfiles keymaps" "")" "jetbrains vscode dotfiles"
 
 it "skip removes steps, aliases included"
-assert_eq "$(select_steps "" "keymaps dotfiles")" "repos karabiner macos manual"
+assert_eq "$(select_steps "" "keymaps dotfiles")" "repos brew karabiner macos manual"
 
 it "duplicates collapse"
 assert_eq "$(select_steps "macos macos keymaps jetbrains" "")" "macos jetbrains vscode"
@@ -46,7 +46,7 @@ assert_eq "$(select_steps "keymaps
 dotfiles" "")" "jetbrains vscode dotfiles"
 assert_eq "$(select_steps "" "
   dotfiles
-")" "repos karabiner macos jetbrains vscode manual"
+")" "repos brew karabiner macos jetbrains vscode manual"
 assert_eq "$(select_steps "$(printf 'macos\tmanual')" "")" "macos manual"
 
 it "unknown step is exit 2 with a message"
@@ -92,7 +92,7 @@ assert_eq "$rc" 2
 
 it "step list names every step and the alias"
 out="$(print_step_list)"
-for s in repos karabiner macos jetbrains vscode dotfiles manual keymaps; do
+for s in repos brew karabiner macos jetbrains vscode dotfiles manual keymaps; do
   assert_contains "$out" "$s"
 done
 
@@ -189,6 +189,18 @@ f="$(write_config "DOTFILES_OMNISHELL_CONFIG=\"$TMP/omni.toml\"")"
 load_config "$f"; rc=$?
 assert_eq "$rc" 0
 
+it "BREW_BUNDLE_EXTRA must be a readable file; ~ is expanded"
+f="$(write_config "BREW_BUNDLE_EXTRA=\"$TMP/nope.Brewfile\"")"
+out="$(load_config "$f" 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "BREW_BUNDLE_EXTRA is not a readable file"
+mkdir -p "$TMP/home"
+echo 'cask "firefox"' > "$TMP/home/Brewfile.local"
+f="$(write_config 'BREW_BUNDLE_EXTRA="~/Brewfile.local"')"
+HOME="$TMP/home" load_config "$f"; rc=$?
+assert_eq "$rc" 0
+assert_eq "$BREW_BUNDLE_EXTRA" "$TMP/home/Brewfile.local"
+
 it "DOTFILES_LOCAL_RC defaults to empty and loads several lines"
 XDG_CONFIG_HOME="$TMP/none" load_config ""
 assert_eq "$DOTFILES_LOCAL_RC" ""
@@ -225,13 +237,13 @@ make_sandbox() {
   SB="$(mktemp -d "$TMP/sb.XXXXXX")"
   APP="$SB/parent/macos-base-config"
   LOG="$SB/calls.log"
-  mkdir -p "$APP" "$SB/home" "$SB/bin" "$SB/Karabiner-Elements.app"
+  mkdir -p "$APP" "$SB/home/.config/karabiner" "$SB/bin" "$SB/Karabiner-Elements.app"
   : > "$LOG"
-  cp -R "$REPO/bootstrap.sh" "$REPO/lib" "$REPO/repos.txt" "$APP/"
+  cp -R "$REPO/bootstrap.sh" "$REPO/lib" "$REPO/repos.txt" "$REPO/Brewfile" "$APP/"
   stub "$APP/ide-keymaps/apply.sh" jetbrains-apply
   stub "$APP/ide-keymaps/port-vscode.sh" port-vscode
   local tool
-  for tool in git brew python3 omnishell; do stub "$SB/bin/$tool" "$tool"; done
+  for tool in git brew python3 omnishell curl open; do stub "$SB/bin/$tool" "$tool"; done
   stub_sibling swiss-windows-keyboard-layout-macos
   stub_sibling karabiner-windows-keyboard-mapping-macos apply.sh
   stub_sibling intelli-key-port
@@ -250,6 +262,7 @@ sandbox_config() {
 run_bootstrap() {
   OUT="$(env -u XDG_CONFIG_HOME -u DOTFILES_TERMINALS HOME="$SB/home" \
     PATH="$SB/bin:/usr/bin:/bin" KARABINER_APP="$SB/Karabiner-Elements.app" \
+    BREW_CANDIDATES="$SB/homebrew/bin/brew" KARABINER_WAIT_SECONDS=0 \
     /bin/bash "$APP/bootstrap.sh" "$@" 2>&1 </dev/null)"
   RC=$?
 }
@@ -294,6 +307,12 @@ run_bootstrap manual
 assert_eq "$RC" 0
 assert_contains "$OUT" "Karabiner permissions"
 assert_not_contains "$OUT" "kdash-token"
+assert_not_contains "$OUT" "uBar"
+
+it "brew runs right after repos"
+make_sandbox
+run_bootstrap --no-pull manual brew repos
+assert_eq "$(headers)" "== repos == brew == manual == summary "
 
 it "dry run hands --dry-run to every sub-tool and runs no git"
 make_sandbox
@@ -378,8 +397,33 @@ make_sandbox
 rmdir "$SB/Karabiner-Elements.app"
 run_bootstrap --no-pull karabiner
 assert_eq "$RC" 0
-assert_contains "$OUT" "  karabiner  skipped  (Karabiner-Elements not installed"
+assert_contains "$OUT" "  karabiner  skipped  (Karabiner-Elements not installed - run ./bootstrap.sh brew"
 assert_eq "$(cat "$LOG")" ""
+
+it "karabiner opens the app once when its config dir is missing"
+make_sandbox
+rmdir "$SB/home/.config/karabiner"
+printf '#!/bin/bash\necho "open $*" >> "%s"\nmkdir -p "$HOME/.config/karabiner"\n' "$LOG" > "$SB/bin/open"
+run_bootstrap --no-pull karabiner
+assert_eq "$RC" 0
+assert_eq "$(cat "$LOG")" "open -ga Karabiner-Elements
+karabiner-windows-keyboard-mapping-macos/apply.sh "
+
+it "karabiner fails when its config dir never appears"
+make_sandbox
+rmdir "$SB/home/.config/karabiner"
+run_bootstrap --no-pull karabiner
+assert_eq "$RC" 1
+assert_contains "$OUT" "  karabiner  failed   (no ~/.config/karabiner - open Karabiner-Elements once)"
+assert_eq "$(cat "$LOG")" "open -ga Karabiner-Elements"
+
+it "karabiner dry run only announces the first launch"
+make_sandbox
+rmdir "$SB/home/.config/karabiner"
+run_bootstrap --dry-run --no-pull karabiner
+assert_eq "$RC" 0
+assert_contains "$OUT" "+ open -ga Karabiner-Elements"
+assert_not_contains "$(cat "$LOG")" "open "
 
 it "a failing step is reported, later steps still run, exit 1"
 make_sandbox
@@ -407,6 +451,81 @@ assert_eq "$RC" 2
 sandbox_config 'BOOTSTRAP_STEPS="bogus"'
 run_bootstrap
 assert_eq "$RC" 2
+assert_eq "$(cat "$LOG")" ""
+
+# --- the brew step ----------------------------------------------------------
+INSTALLER_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
+
+# installer_stub [EXIT] -> curl stub that logs itself and serves an installer
+# which puts a brew stub at $SB/homebrew/bin/brew (the BREW_CANDIDATES path);
+# a non-zero EXIT makes curl fail instead
+installer_stub() {
+  stub "$SB/brew-to-install" brew
+  printf '#!/bin/bash\necho "curl $*" >> "%s"\n[ %s = 0 ] || exit %s\necho "mkdir -p %s && cp %s %s"\n' \
+    "$LOG" "${1:-0}" "${1:-0}" "$SB/homebrew/bin" "$SB/brew-to-install" "$SB/homebrew/bin/brew" \
+    > "$SB/bin/curl"
+  chmod +x "$SB/bin/curl"
+}
+
+it "brew with Homebrew on PATH only runs brew bundle"
+make_sandbox
+run_bootstrap --no-pull brew
+assert_eq "$RC" 0
+assert_eq "$(cat "$LOG")" "brew bundle --file=$APP/Brewfile --no-upgrade"
+assert_contains "$OUT" "  brew       ok"
+
+it "brew installs Homebrew when missing, then bundles"
+make_sandbox
+rm "$SB/bin/brew"
+installer_stub
+run_bootstrap --no-pull brew
+assert_eq "$RC" 0
+assert_eq "$(cat "$LOG")" "curl -fsSL $INSTALLER_URL
+brew bundle --file=$APP/Brewfile --no-upgrade"
+
+it "brew uses a Homebrew that is installed but not on PATH"
+make_sandbox
+rm "$SB/bin/brew"
+stub "$SB/homebrew/bin/brew" brew
+run_bootstrap --no-pull brew dotfiles
+assert_eq "$RC" 0
+assert_not_contains "$(cat "$LOG")" "curl"
+assert_contains "$(cat "$LOG")" "brew bundle --file=$APP/Brewfile --no-upgrade"
+assert_contains "$OUT" "  dotfiles   ok"
+
+it "a failed Homebrew install fails the step, later steps still run"
+make_sandbox
+rm "$SB/bin/brew"
+installer_stub 22
+run_bootstrap --no-pull brew macos
+assert_eq "$RC" 1
+assert_contains "$OUT" "  brew       failed   (Homebrew install failed)"
+assert_contains "$OUT" "  macos      ok"
+assert_not_contains "$(cat "$LOG")" "brew bundle"
+
+it "a failing brew bundle fails the step"
+make_sandbox
+stub "$SB/bin/brew" brew 1
+run_bootstrap --no-pull brew
+assert_eq "$RC" 1
+assert_contains "$OUT" "  brew       failed   (brew bundle)"
+
+it "BREW_BUNDLE_EXTRA runs a second bundle"
+make_sandbox
+echo 'cask "firefox"' > "$SB/home/Brewfile.local"
+sandbox_config 'BREW_BUNDLE_EXTRA="~/Brewfile.local"'
+run_bootstrap --no-pull brew
+assert_eq "$RC" 0
+assert_eq "$(cat "$LOG")" "brew bundle --file=$APP/Brewfile --no-upgrade
+brew bundle --file=$SB/home/Brewfile.local --no-upgrade"
+
+it "dry run announces the Homebrew install and the bundle, runs nothing"
+make_sandbox
+rm "$SB/bin/brew"
+run_bootstrap --dry-run --no-pull brew
+assert_eq "$RC" 0
+assert_contains "$OUT" "+ install Homebrew: /bin/bash -c \"\$(curl -fsSL $INSTALLER_URL)\""
+assert_contains "$OUT" "+ brew bundle --file=$APP/Brewfile --no-upgrade"
 assert_eq "$(cat "$LOG")" ""
 
 # --- the dotfiles step ------------------------------------------------------
@@ -478,7 +597,7 @@ make_sandbox
 rm "$SB/bin/brew"
 run_bootstrap --no-pull dotfiles
 assert_eq "$RC" 1
-assert_contains "$OUT" "Homebrew required"
+assert_contains "$OUT" "Homebrew required - run ./bootstrap.sh brew"
 assert_eq "$(cat "$LOG")" ""
 assert_not_contains "$OUT" "hint:"
 
@@ -615,7 +734,8 @@ load_config "$REPO/config.example.sh"; rc=$?
 assert_eq "$rc" 0
 assert_eq "$BOOTSTRAP_STEPS|$BOOTSTRAP_SKIP|$DOTFILES_DIR|$DOTFILES_URL|$DOTFILES_ASSUME_YES|$DOTFILES_TERMINALS|$DOTFILES_OMNISHELL_CONFIG" "||||0||"
 assert_eq "$DOTFILES_LOCAL_RC" ""
-for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG DOTFILES_LOCAL_RC; do
+assert_eq "$BREW_BUNDLE_EXTRA" ""
+for key in BOOTSTRAP_STEPS BOOTSTRAP_SKIP BREW_BUNDLE_EXTRA DOTFILES_DIR DOTFILES_URL DOTFILES_ASSUME_YES DOTFILES_TERMINALS DOTFILES_OMNISHELL_CONFIG DOTFILES_LOCAL_RC; do
   assert_contains "$(cat "$REPO/config.example.sh")" "$key="
 done
 

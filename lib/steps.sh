@@ -9,8 +9,13 @@
 # Reads the globals bootstrap.sh sets: HERE, PARENT_DIR, DRY_RUN, NO_PULL, and
 # the config values from lib/config.sh.
 
-# overridable so tests can point it into a sandbox
+# overridable so tests can point them into a sandbox
 KARABINER_APP="${KARABINER_APP:-/Applications/Karabiner-Elements.app}"
+# seconds to wait for ~/.config/karabiner after starting Karabiner-Elements
+KARABINER_WAIT_SECONDS="${KARABINER_WAIT_SECONDS:-10}"
+# where Homebrew lives when it is installed but not on PATH (Apple silicon, Intel)
+BREW_CANDIDATES="${BREW_CANDIDATES:-/opt/homebrew/bin/brew /usr/local/bin/brew}"
+HOMEBREW_INSTALLER_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
 STEP_SKIP_REASON=""
 STEP_FAIL_REASON=""
 PULLED_DIRS=""
@@ -82,6 +87,30 @@ has_jetbrains_config() {
     \( -name 'PhpStorm*' -o -name 'IntelliJIdea*' \) 2>/dev/null | grep -q .
 }
 
+# find_brew -> 0 when brew is usable; a brew found in BREW_CANDIDATES but not
+# on PATH is put on PATH for the rest of the run
+find_brew() {
+  local candidate
+  command -v brew >/dev/null 2>&1 && return 0
+  for candidate in $BREW_CANDIDATES; do
+    if [ -x "$candidate" ]; then
+      PATH="$(dirname "$candidate"):$PATH"
+      export PATH
+      return 0
+    fi
+  done
+  return 1
+}
+
+# install_homebrew -> run the official installer (asks for the sudo password)
+install_homebrew() {
+  local installer
+  echo "+ install Homebrew: /bin/bash -c \"\$(curl -fsSL $HOMEBREW_INSTALLER_URL)\""
+  $DRY_RUN && return 0
+  installer="$(curl -fsSL "$HOMEBREW_INSTALLER_URL")" || return 1
+  /bin/bash -c "$installer" && find_brew
+}
+
 step_repos() {
   local name url _rest failed=0
   # repos.txt on fd 3: a git that reads stdin (credential / host-key prompt)
@@ -95,12 +124,49 @@ step_repos() {
   return $failed
 }
 
+# brew_bundle BREWFILE -> install what BREWFILE lists; nothing already
+# installed is upgraded (the apps update themselves)
+brew_bundle() {
+  run_cmd brew bundle --file="$1" --no-upgrade
+}
+
+step_brew() {
+  if ! find_brew && ! install_homebrew; then
+    STEP_FAIL_REASON="Homebrew install failed"
+    return 1
+  fi
+  if ! brew_bundle "$HERE/Brewfile" ||
+    { [ -n "$BREW_BUNDLE_EXTRA" ] && ! brew_bundle "$BREW_BUNDLE_EXTRA"; }; then
+    STEP_FAIL_REASON="brew bundle"
+    return 1
+  fi
+}
+
+# wait_for_karabiner_config -> start Karabiner-Elements once so it creates
+# ~/.config/karabiner (apply.sh needs it); 1 if it doesn't appear in time
+wait_for_karabiner_config() {
+  local config_dir="$HOME/.config/karabiner" tries
+  [ -d "$config_dir" ] && return 0
+  run_cmd open -ga Karabiner-Elements || true
+  $DRY_RUN && return 0
+  tries=$((KARABINER_WAIT_SECONDS * 2))
+  while [ ! -d "$config_dir" ] && [ "$tries" -gt 0 ]; do
+    sleep 0.5
+    tries=$((tries - 1))
+  done
+  [ -d "$config_dir" ]
+}
+
 step_karabiner() {
   local name=karabiner-windows-keyboard-mapping-macos
   local dir="$PARENT_DIR/$name"
   if [ ! -d "$KARABINER_APP" ]; then
-    skip "Karabiner-Elements not installed - run $dir/setup.sh first"
+    skip "Karabiner-Elements not installed - run ./bootstrap.sh brew"
     return 0
+  fi
+  if ! wait_for_karabiner_config; then
+    STEP_FAIL_REASON="no ~/.config/karabiner - open Karabiner-Elements once"
+    return 1
   fi
   ensure_sibling "$name" "$(sibling_url "$name")" "$dir" || return 1
   run_in "$dir" ./apply.sh
@@ -178,8 +244,8 @@ step_dotfiles() {
   local dir omnishell_target rc=0
   dir="$(sibling_dir dotfiles)"
   ensure_sibling dotfiles "$(dotfiles_url)" "$dir" || return 1
-  if ! command -v brew >/dev/null 2>&1; then
-    echo "  Homebrew required - install it first (README: Apps)" >&2
+  if ! find_brew; then
+    echo "  Homebrew required - run ./bootstrap.sh brew" >&2
     STEP_FAIL_REASON="Homebrew missing"
     return 1
   fi
@@ -226,5 +292,5 @@ step_manual() {
   echo "  - Karabiner permissions: karabiner-windows-keyboard-mapping-macos/setup.sh prints them"
   echo "  - Swiss keyboard layout: swiss-windows-keyboard-layout-macos/README.md"
   echo "  - PhpStorm: Settings > Tools > Terminal > 'Use Option as Meta key' off (AltGr in the console)"
-  echo "  - see README.md 'Manual steps' (VoiceOver off, Gatekeeper, AltTab, uBar)"
+  echo "  - see README.md 'Manual steps' (VoiceOver off, Gatekeeper)"
 }
