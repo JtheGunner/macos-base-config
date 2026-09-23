@@ -1007,11 +1007,12 @@ assert_contains "$OUT" "Tool: failed: secret keys in export: apiToken - not writ
 [ -e "$AS/tool.json" ] && fail "secret export written"
 [ -f "$AS/alt-tab.plist" ] || fail "AltTab not exported"
 
-it "the shipped registry exports Shottr without its license, token and device keys"
+it "the shipped registry exports Shottr without its license, token, device and runtime keys"
 app_sandbox
 mkdir -p "$AAPPS/Shottr.app"
 write_alttab "$AH/defaults-store/cc.ffitch.shottr.plist" afterGrabCopy=1 kc-license=L token=T \
-  kc-vault=V uid=U defaultFolderBookmark=B \
+  kc-vault=V uid=U defaultFolderBookmark=B localEventCounter=773 activeAppVersion=1090235 \
+  latestBuild=135 latestVersionCode=10902 latestVersionPackageUrl=P latestVersionURL=U \
   "NSStatusItem VisibleCC Item-0=1" GATelemetry=1 customBackdropColor=red
 run_app_settings export shottr
 assert_eq "$RC" 0
@@ -1361,6 +1362,22 @@ sandbox_config 'BOOTSTRAP_STEPS=""'
 touch "$SB/home/.config/macos-base-config/sidebar.sidebarbackup"
 run_bootstrap manual
 assert_contains "$OUT" "Sidebar settings: Settings > Expert > Backups > restore the backup the apps step added"
+mkdir -p "$SB/Applications/Shottr.app"
+run_bootstrap manual
+assert_contains "$OUT" "Licenses: enter the AltTab (Pro), Sidebar and Shottr keys from your password manager"
+assert_not_contains "$OUT" "Tabby"
+mkdir -p "$SB/Applications/Tabby.app"
+run_bootstrap manual
+assert_not_contains "$OUT" "Tabby"
+touch "$SB/home/.config/macos-base-config/tabby.yaml"
+run_bootstrap manual
+assert_contains "$OUT" "Tabby: unlock its vault with the passphrase from your password manager"
+
+it "manual step names a single Shottr license"
+make_sandbox
+mkdir -p "$SB/Applications/Shottr.app"
+run_bootstrap manual
+assert_contains "$OUT" "Licenses: enter the Shottr key from your password manager"
 
 it "brew runs right after repos"
 make_sandbox
@@ -1447,6 +1464,23 @@ run_bootstrap --no-pull keymaps
 assert_eq "$RC" 0
 assert_contains "$(cat "$LOG")" "jetbrains-apply"
 assert_contains "$(cat "$LOG")" "port-vscode"
+
+it "jetbrains skips while a JetBrains IDE is running; vscode still runs"
+make_sandbox
+with_jetbrains
+stub "$APP/ide-keymaps/apply.sh" jetbrains-apply 75
+run_bootstrap --no-pull keymaps
+assert_eq "$RC" 0
+assert_contains "$OUT" "  jetbrains  skipped  (a JetBrains IDE is running - quit it, then run: ./bootstrap.sh jetbrains)"
+assert_contains "$(cat "$LOG")" "port-vscode"
+
+it "any other jetbrains failure still fails the step"
+make_sandbox
+with_jetbrains
+stub "$APP/ide-keymaps/apply.sh" jetbrains-apply 1
+run_bootstrap --no-pull keymaps
+assert_eq "$RC" 1
+assert_contains "$OUT" "  jetbrains  failed"
 
 it "karabiner skips when Karabiner-Elements is missing"
 make_sandbox
@@ -1612,6 +1646,18 @@ sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
 run_bootstrap --no-pull macos
 assert_eq "$RC" 1
 assert_contains "$OUT" "  macos      failed   (Gatekeeper)"
+
+it "Gatekeeper waiting for its confirmation in System Settings is ok; the pane opens"
+make_sandbox
+printf '#!/bin/bash\necho "sudo $*" >> "%s"\necho "Globally disabling the assessment system needs to be confirmed in System Settings."\nexit 1\n' \
+  "$LOG" > "$SB/bin/sudo"
+chmod +x "$SB/bin/sudo"
+sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
+run_bootstrap --no-pull macos
+assert_eq "$RC" 0
+assert_contains "$OUT" "needs to be confirmed in System Settings"
+assert_contains "$(cat "$LOG")" "open x-apple.systempreferences:com.apple.preference.security?General"
+assert_contains "$OUT" "  macos      ok"
 
 it "Gatekeeper dry run only shows the commands"
 make_sandbox

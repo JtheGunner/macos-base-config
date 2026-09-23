@@ -23,7 +23,7 @@ DRY=false; [[ "${1:-}" == "--dry-run" ]] && DRY=true
 # but not yet pulled with ./sync.sh would be overwritten by the tracked copy.
 if ! $DRY && pgrep -f '/(PhpStorm|IntelliJ IDEA)[^/]*\.app/Contents/MacOS/' >/dev/null; then
   echo "a JetBrains IDE is running - quit it first (and run ./sync.sh if you changed the keymap)"
-  exit 1
+  exit 75  # EX_TEMPFAIL: bootstrap.sh skips the step instead of failing it
 fi
 
 found=0

@@ -410,13 +410,25 @@ step_keyboard() {
 }
 
 # disable_gatekeeper -> allow apps from anywhere; macOS asks to confirm it in
-# Privacy & Security, so that pane is opened
+# Privacy & Security, so that pane is opened. Since macOS 15, spctl only
+# requests the change and fails with "needs to be confirmed in System
+# Settings" - that is the expected outcome, not an error.
 disable_gatekeeper() {
+  local out
   if spctl --status 2>/dev/null | grep -q 'assessments disabled'; then
     echo "  Gatekeeper: already off"
     return 0
   fi
-  run_cmd sudo spctl --master-disable || return 1
+  echo "+ sudo spctl --master-disable"
+  if ! $DRY_RUN && ! out="$(sudo spctl --master-disable 2>&1)"; then
+    [ -n "$out" ] && echo "$out"
+    case "$out" in
+      *"needs to be confirmed in System Settings"*) ;;
+      *) return 1 ;;
+    esac
+  elif [ -n "${out:-}" ]; then
+    echo "$out"
+  fi
   run_cmd open "x-apple.systempreferences:com.apple.preference.security?General" || true
   echo "  Gatekeeper: confirm 'Allow applications from: Anywhere' under Privacy & Security"
 }
@@ -435,7 +447,13 @@ step_jetbrains() {
     skip "no JetBrains config yet - start PhpStorm once, then run: ./bootstrap.sh keymaps"
     return 0
   fi
-  run_in "$HERE/ide-keymaps" ./apply.sh
+  local rc=0
+  run_in "$HERE/ide-keymaps" ./apply.sh || rc=$?
+  case "$rc" in
+    0) ;;
+    75) skip "a JetBrains IDE is running - quit it, then run: ./bootstrap.sh jetbrains" ;;
+    *) return 1 ;;
+  esac
 }
 
 step_vscode() {
@@ -575,7 +593,7 @@ step_dotfiles() {
 }
 
 step_manual() {
-  local licensed=""
+  local licensed="" app count=0 last=""
   echo "  - Karabiner permissions: karabiner-windows-keyboard-mapping-macos/setup.sh opens the panes"
   echo "  - Input source: check '$KEYBOARD_LAYOUT_NAME' under System Settings > Keyboard > Input Sources, then log out and in"
   if [ "$MACOS_DISABLE_GATEKEEPER" = 1 ]; then
@@ -584,12 +602,19 @@ step_manual() {
   if [ -d "$APPLICATIONS_DIR/Sidebar.app" ] && [ -f "$SETTINGS_DIR/sidebar.sidebarbackup" ]; then
     echo "  - Sidebar settings: Settings > Expert > Backups > restore the backup the apps step added"
   fi
-  [ -d "$APPLICATIONS_DIR/AltTab.app" ] && licensed="AltTab (Pro)"
-  [ -d "$APPLICATIONS_DIR/Sidebar.app" ] && licensed="${licensed:+$licensed and }Sidebar"
-  case "$licensed" in
-    "") ;;
-    *" and "*) echo "  - Licenses: enter the $licensed keys from your password manager" ;;
-    *) echo "  - Licenses: enter the $licensed key from your password manager" ;;
+  for app in "AltTab:AltTab (Pro)" "Sidebar:Sidebar" "Shottr:Shottr"; do
+    [ -d "$APPLICATIONS_DIR/${app%%:*}.app" ] || continue
+    [ -n "$last" ] && licensed="${licensed:+$licensed, }$last"
+    last="${app#*:}"
+    count=$((count + 1))
+  done
+  case "$count" in
+    0) ;;
+    1) echo "  - Licenses: enter the $last key from your password manager" ;;
+    *) echo "  - Licenses: enter the $licensed and $last keys from your password manager" ;;
   esac
+  if [ -d "$APPLICATIONS_DIR/Tabby.app" ] && [ -f "$SETTINGS_DIR/tabby.yaml" ]; then
+    echo "  - Tabby: unlock its vault with the passphrase from your password manager"
+  fi
   manual_package_hints "$SELECTED_PACKAGES"
 }
