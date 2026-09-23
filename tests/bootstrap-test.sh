@@ -28,13 +28,13 @@ assert_not_contains() {
 . "$REPO/lib/cli.sh"
 
 it "no steps selects every step in order"
-assert_eq "$(select_steps "" "")" "repos brew karabiner keyboard macos jetbrains vscode dotfiles manual"
+assert_eq "$(select_steps "" "")" "repos brew karabiner keyboard macos jetbrains vscode editor dotfiles manual"
 
 it "steps run in table order, aliases expand"
 assert_eq "$(select_steps "dotfiles keymaps" "")" "jetbrains vscode dotfiles"
 
 it "skip removes steps, aliases included"
-assert_eq "$(select_steps "" "keymaps dotfiles")" "repos brew karabiner keyboard macos manual"
+assert_eq "$(select_steps "" "keymaps dotfiles")" "repos brew karabiner keyboard macos editor manual"
 
 it "duplicates collapse"
 assert_eq "$(select_steps "macos macos keymaps jetbrains" "")" "macos jetbrains vscode"
@@ -47,7 +47,7 @@ assert_eq "$(select_steps "keymaps
 dotfiles" "")" "jetbrains vscode dotfiles"
 assert_eq "$(select_steps "" "
   dotfiles
-")" "repos brew karabiner keyboard macos jetbrains vscode manual"
+")" "repos brew karabiner keyboard macos jetbrains vscode editor manual"
 assert_eq "$(select_steps "$(printf 'macos\tmanual')" "")" "macos manual"
 
 it "unknown step is exit 2 with a message"
@@ -93,7 +93,7 @@ assert_eq "$rc" 2
 
 it "step list names every step and the alias"
 out="$(print_step_list)"
-for s in repos brew karabiner keyboard macos jetbrains vscode dotfiles manual keymaps; do
+for s in repos brew karabiner keyboard macos jetbrains vscode editor dotfiles manual keymaps; do
   assert_contains "$out" "$s"
 done
 
@@ -288,6 +288,116 @@ assert_eq "$(cat "$f")" "<application>
 python3 "$TERMINAL_OPTION" "$TMP/opt4/terminal.xml" useOptionAsMetaKey false --dry-run >/dev/null
 [ -e "$TMP/opt4" ] && fail "created in dry run"
 
+# --- editor-settings/apply.py -----------------------------------------------
+EDITOR_APPLY="$REPO/editor-settings/apply.py"
+FONT_FAMILY="\"'JetBrains Mono', 'Menlo', 'Monaco', 'Courier New', monospace\""
+
+# editor_home -> fresh fake HOME in EH; editor_dir NAME -> its User dir
+editor_home() { EH="$(mktemp -d "$TMP/eh.XXXXXX")"; }
+editor_dir() {
+  local dir="$EH/Library/Application Support/$1/User"
+  mkdir -p "$dir"
+  echo "$dir"
+}
+run_editor_apply() { OUT="$(HOME="$EH" python3 "$EDITOR_APPLY" "$@" 2>&1)"; RC=$?; }
+backups() { ls "$1" | grep -c 'settings.json.bak-' || true; }
+
+it "editor settings replace a value, keep comments and other keys"
+editor_home
+d="$(editor_dir Code)"
+cat > "$d/settings.json" <<'JSON'
+{
+    "security.workspace.trust.untrustedFiles": "open",
+    // "editor.fontSize": 99,
+    //"editor.fontFamily": "'Cascadia Code', monospace",
+    "editor.fontFamily": "Menlo",
+    /* block comment with "editor.fontWeight": "900" inside */
+    "yaml.schemas": { "editor.fontSize": 7 },
+    "editor.fontSize": 14,
+    "editor.fontWeight": "100",
+}
+JSON
+run_editor_apply
+assert_eq "$RC" 0
+f="$(cat "$d/settings.json")"
+assert_contains "$f" "\"editor.fontFamily\": $FONT_FAMILY,"
+assert_contains "$f" '"editor.fontSize": 12,'
+assert_contains "$f" '// "editor.fontSize": 99,'
+assert_contains "$f" "//\"editor.fontFamily\": \"'Cascadia Code', monospace\","
+assert_contains "$f" '/* block comment with "editor.fontWeight": "900" inside */'
+assert_contains "$f" '"yaml.schemas": { "editor.fontSize": 7 },'
+assert_contains "$f" '"security.workspace.trust.untrustedFiles": "open",'
+assert_eq "$(backups "$d")" 1
+assert_contains "$OUT" "VS Code: updated"
+
+it "editor settings add missing keys, also after a trailing comma"
+editor_home
+d="$(editor_dir Cursor)"
+printf '{\n  "workbench.colorTheme": "Default Dark+",\n}\n' > "$d/settings.json"
+run_editor_apply
+assert_eq "$RC" 0
+f="$(cat "$d/settings.json")"
+assert_eq "$f" "{
+  \"workbench.colorTheme\": \"Default Dark+\",
+  \"editor.fontFamily\": $FONT_FAMILY,
+  \"editor.fontSize\": 12,
+  \"editor.fontWeight\": \"100\",
+}"
+d="$(editor_dir Windsurf)"
+printf '{\n    "a": 1\n}\n' > "$d/settings.json"
+run_editor_apply
+assert_eq "$RC" 0
+assert_contains "$(cat "$d/settings.json")" "\"a\": 1,
+    \"editor.fontFamily\": $FONT_FAMILY"
+
+it "editor settings create a missing settings.json, skip missing editors"
+editor_home
+d="$(editor_dir "Antigravity IDE")"
+run_editor_apply
+assert_eq "$RC" 0
+assert_eq "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["editor.fontSize"])' "$d/settings.json")" 12
+assert_contains "$OUT" "Antigravity IDE: created"
+assert_not_contains "$OUT" "VS Code"
+[ -e "$EH/Library/Application Support/Code" ] && fail "created a dir for a missing editor"
+
+it "editor settings are idempotent: no change, no backup"
+run_editor_apply
+before="$(cat "$d/settings.json")"
+run_editor_apply
+assert_eq "$RC" 0
+assert_contains "$OUT" "Antigravity IDE: already set"
+assert_eq "$(cat "$d/settings.json")" "$before"
+assert_eq "$(backups "$d")" 0
+
+it "editor settings dry run shows a diff and writes nothing"
+editor_home
+d="$(editor_dir Code)"
+printf '{\n    "editor.fontSize": 14\n}\n' > "$d/settings.json"
+run_editor_apply --dry-run
+assert_eq "$RC" 0
+assert_contains "$OUT" '-    "editor.fontSize": 14'
+assert_contains "$OUT" '+    "editor.fontSize": 12'
+assert_eq "$(cat "$d/settings.json")" '{
+    "editor.fontSize": 14
+}'
+assert_eq "$(backups "$d")" 0
+d2="$(editor_dir VSCodium)"
+run_editor_apply --dry-run
+[ -e "$d2/settings.json" ] && fail "created in dry run"
+
+it "a broken settings.json is reported and left alone; others still run"
+editor_home
+d="$(editor_dir Code)"
+printf '{\n    "editor.fontSize": \n' > "$d/settings.json"
+d2="$(editor_dir Cursor)"
+run_editor_apply
+assert_eq "$RC" 1
+assert_contains "$OUT" "VS Code: "
+assert_contains "$OUT" "left unchanged"
+assert_eq "$(cat "$d/settings.json")" '{
+    "editor.fontSize": '
+assert_contains "$OUT" "Cursor: created"
+
 # --- end to end: bootstrap.sh in a sandbox ----------------------------------
 # stub PATH LABEL [EXIT] -> executable that appends "LABEL <args>" to $LOG
 stub() {
@@ -319,6 +429,7 @@ make_sandbox() {
   cp -R "$REPO/bootstrap.sh" "$REPO/lib" "$REPO/repos.txt" "$REPO/Brewfile" "$APP/"
   stub "$APP/ide-keymaps/apply.sh" jetbrains-apply
   stub "$APP/ide-keymaps/port-vscode.sh" port-vscode
+  mkdir -p "$APP/editor-settings"
   local tool
   for tool in git brew python3 omnishell curl open swift sudo; do stub "$SB/bin/$tool" "$tool"; done
   spctl_stub "assessments enabled"
@@ -402,6 +513,12 @@ sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
 run_bootstrap manual
 assert_contains "$OUT" "Gatekeeper"
 
+it "editor runs right after vscode and calls editor-settings/apply.py"
+make_sandbox
+run_bootstrap --no-pull manual editor vscode
+assert_eq "$(headers)" "== vscode == editor == manual == summary "
+assert_contains "$(cat "$LOG")" "python3 apply.py"
+
 it "brew runs right after repos"
 make_sandbox
 run_bootstrap --no-pull manual brew repos
@@ -417,6 +534,7 @@ assert_contains "$log" "karabiner-windows-keyboard-mapping-macos/apply.sh --dry-
 assert_contains "$log" "python3 macos-defaults.py --dry-run"
 assert_contains "$log" "jetbrains-apply --dry-run"
 assert_contains "$log" "port-vscode --dry-run"
+assert_contains "$log" "python3 apply.py --dry-run"
 assert_not_contains "$log" "git "
 while IFS= read -r line; do assert_contains "$line" "--dry-run"; done < "$LOG"
 assert_contains "$OUT" "+ git -C $SB/parent/intelli-key-port pull --ff-only"

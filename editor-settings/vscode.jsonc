@@ -1,0 +1,9 @@
+// Editor settings for every VS Code-family editor (VS Code, Cursor, Windsurf,
+// Antigravity, ...). ./bootstrap.sh editor (apply.py next to this file) sets
+// these keys in each editor's User/settings.json; everything else in that
+// file stays as it is. JetBrains Mono comes from the Brewfile.
+{
+    "editor.fontFamily": "'JetBrains Mono', 'Menlo', 'Monaco', 'Courier New', monospace",
+    "editor.fontSize": 12,
+    "editor.fontWeight": "100"
+}
