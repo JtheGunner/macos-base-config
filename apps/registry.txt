@@ -1,0 +1,16 @@
+# App settings registry - how each app keeps its settings. The settings
+# themselves live in the private SETTINGS_DIR, never in this repo.
+#
+#   id | kind | where | app
+#
+# id     lowercase; the settings file is <id>.plist / <id>.sidebarbackup /
+#        <id><suffix of where>
+# kind   defaults  a preferences domain: exported without runtime state and
+#                  secrets, applied by merging (the app restarts)
+#        file      a file, copied as is (the old one is backed up on apply)
+#        sidebar   Sidebar's backup format: added to its backup list
+# where  the domain, or the path (~ allowed)
+# app    the app in /Applications: installed?, and what is restarted
+
+alt-tab | defaults | com.lwouis.alt-tab-macos                         | AltTab
+sidebar | sidebar  | ~/Library/Application Support/at.sidebar.Sidebar | Sidebar

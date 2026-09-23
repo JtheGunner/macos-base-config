@@ -30,12 +30,67 @@ import datetime
 import json
 import os
 import plistlib
+import re
 import subprocess
 import sys
 import tempfile
 import time
 import uuid
 from pathlib import Path
+from typing import NamedTuple
+
+HERE = Path(__file__).resolve().parent
+REGISTRY_FILE = Path(os.environ.get("APP_REGISTRY") or HERE / "registry.txt")
+KINDS = ("defaults", "file", "sidebar")
+
+
+class RegistryError(Exception):
+    pass
+
+
+class Entry(NamedTuple):
+    id: str
+    kind: str
+    where: str
+    app: str
+
+
+def registry_problem(path: Path, number: int, line: str, first_line: dict[str, int]) -> str | None:
+    """what is wrong with one registry line, None when it is fine"""
+    cells = [cell.strip() for cell in line.split("|")]
+    where = f"{path.name}:{number}"
+    if len(cells) != 4 or not all(cells):
+        return f"{where}: expected 4 columns: id | kind | where | app"
+    entry = Entry(*cells)
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", entry.id):
+        return f"{where}: invalid id: {entry.id}"
+    if entry.kind not in KINDS:
+        return f"{where}: unknown kind: {entry.kind}"
+    if entry.id in first_line:
+        return f"{where}: duplicate id: {entry.id} (first on line {first_line[entry.id]})"
+    return None
+
+
+def load_registry(path: Path) -> list[Entry]:
+    """The registry's entries; malformed lines raise one RegistryError that
+    names every one of them."""
+    entries: list[Entry] = []
+    problems: list[str] = []
+    first_line: dict[str, int] = {}
+    for number, line in enumerate(path.read_text().splitlines(), start=1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        problem = registry_problem(path, number, line, first_line)
+        if problem:
+            problems.append(problem)
+            continue
+        entry = Entry(*[cell.strip() for cell in line.split("|")])
+        first_line[entry.id] = number
+        entries.append(entry)
+    if problems:
+        raise RegistryError("\n".join(problems))
+    return entries
+
 
 ALTTAB_FILE_NAME = "alttab.plist"
 SIDEBAR_FILE_NAME = "sidebar.sidebarbackup"
@@ -223,6 +278,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="private settings directory (default: ~/.config/macos-base-config)")
     parser.add_argument("--dry-run", action="store_true", help="apply: change nothing")
     args = parser.parse_args(argv)
+    try:
+        entries = load_registry(REGISTRY_FILE)
+    except (OSError, RegistryError) as error:
+        print(f"app_settings: {error}", file=sys.stderr)
+        return 2
     settings_dir = (args.dir or default_settings_dir()).expanduser()
     try:
         if args.command == "export":

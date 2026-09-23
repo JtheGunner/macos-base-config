@@ -717,6 +717,7 @@ app_sandbox() {
   mkdir -p "$AH" "$AD" "$AB" "$AAPPS/AltTab.app" "$AAPPS/Sidebar.app"
   : > "$ALOG"
   cp "$REPO/apps/app_settings.py" "$AD/"
+  cp "$REPO/apps/registry.txt" "$AD/"
   cat > "$AB/defaults" <<EOF
 #!/bin/bash
 echo "defaults \$*" >> "$ALOG"
@@ -766,6 +767,31 @@ backup = {"encryptedLicenseInfo": b"\x01\x02", "formatVersion": 2,
           "preferencesPlist": plistlib.dumps(prefs, fmt=plistlib.FMT_BINARY)}
 plistlib.dump(backup, open(sys.argv[1], "wb"), fmt=plistlib.FMT_BINARY)' "$1"
 }
+
+# write_registry LINE... -> $AD/registry.txt
+write_registry() { printf '%s\n' "$@" > "$AD/registry.txt"; }
+
+it "the shipped app registry parses"
+python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import app_settings as a
+print(",".join(e.id for e in a.load_registry(a.REGISTRY_FILE)))' "$REPO/apps" > "$TMP/reg.out" 2>&1
+assert_eq "$?" 0
+assert_contains "$(cat "$TMP/reg.out")" "alt-tab"
+assert_contains "$(cat "$TMP/reg.out")" "sidebar"
+
+it "registry problems name their line and exit 2"
+app_sandbox
+write_registry '# comment' '' \
+  'ok     | defaults | com.example.ok | Ok' \
+  'short  | defaults | com.example' \
+  'bad    | rsync    | x              | Bad' \
+  'ok     | defaults | com.example.x  | Dup' \
+  'Upper  | defaults | com.example.u  | U'
+run_app_settings apply
+assert_eq "$RC" 2
+assert_contains "$OUT" "registry.txt:4: expected 4 columns: id | kind | where | app"
+assert_contains "$OUT" "registry.txt:5: unknown kind: rsync"
+assert_contains "$OUT" "registry.txt:6: duplicate id: ok (first on line 3)"
+assert_contains "$OUT" "registry.txt:7: invalid id: Upper"
 
 it "apps export keeps AltTab settings, drops runtime and license keys"
 app_sandbox
@@ -909,7 +935,8 @@ assert_eq "$?" 0
 
 it "no app settings are tracked in this public repo"
 tracked="$(git -C "$REPO" ls-files apps)"
-assert_eq "$tracked" "apps/app_settings.py"
+assert_eq "$tracked" "apps/app_settings.py
+apps/registry.txt"
 assert_contains "$(cat "$REPO/.gitignore")" "apps/*.plist"
 assert_contains "$(cat "$REPO/.gitignore")" "apps/*.sidebarbackup"
 
