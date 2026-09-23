@@ -41,6 +41,7 @@ catalog_rows() {
       if (category !~ /^[a-z][a-z0-9-]*$/) { problem("invalid category: " category); next }
       if (category == "all") { problem("category @all is reserved"); next }
       if (index(sources, " " source " ") == 0) { problem("unknown source: " source); next }
+      if (source == "script" && ref !~ /^https:\/\//) { problem("script needs an https:// URL"); next }
       if (source == "mas" && (ref !~ /^[0-9]+$/ || check == "-")) {
         problem("mas needs a numeric App Store id and the app name"); next
       }
@@ -91,6 +92,18 @@ select_packages() {
   '
 }
 
+# user_bin_dirs_on_path -> append the dirs pipx, uv tool, go install and vendor
+# install scripts write to (~/.local/bin, $GOBIN or ~/go/bin) to PATH for this
+# run. On a fresh Mac they are not on PATH yet (the dotfiles step comes later):
+# a package there would look missing and be installed again on every run.
+user_bin_dirs_on_path() {
+  local dir
+  for dir in "$HOME/.local/bin" "${GOBIN:-$HOME/go/bin}"; do
+    case ":$PATH:" in *":$dir:"*) ;; *) PATH="$PATH:$dir" ;; esac
+  done
+  export PATH
+}
+
 # package_state SOURCE CHECK -> "installed" or "missing"; empty when CHECK is
 # "-" (the source checks itself). Apps by their folder in APPLICATIONS_DIR,
 # everything else as a command on PATH.
@@ -106,13 +119,23 @@ package_state() {
 # taps) and DIR/Brewfile.mas (App Store entries plus mas itself), each only
 # when it has entries. An app already in APPLICATIONS_DIR is left out: brew
 # refuses to install over an app it didn't install, failing the whole bundle.
+# A selected pipx / uv / go package whose command is missing pulls in its
+# tool (brew "pipx", "uv", "go") unless that formula is listed already.
 write_brewfiles() {
   local dir="$1" rows id source ref check _category _description tap
-  local taps="" entries="" store=""
+  local taps="" entries="" store="" needs="" tool
   rows="$(catalog_rows)" || return 2
   while IFS=$'\t' read -r id source ref check _category _description; do
     case " $2 " in *" $id "*) ;; *) continue ;; esac
-    case "$source" in formula | cask | mas) ;; *) continue ;; esac
+    case "$source" in
+      formula | cask | mas) ;;
+      pipx | uv | go)
+        if [ "$(package_state "$source" "$check")" != installed ]; then
+          case " $needs " in *" $source "*) ;; *) needs="$needs $source" ;; esac
+        fi
+        continue ;;
+      *) continue ;;
+    esac
     if [ "$source" != formula ] && [ "$(package_state "$source" "$check")" = installed ]; then
       echo "  $id: $check.app already in $APPLICATIONS_DIR - left alone"
       continue
@@ -129,6 +152,9 @@ write_brewfiles() {
         case "$taps" in *"tap \"$tap\""*) ;; *) taps="${taps}tap \"$tap\""$'\n' ;; esac ;;
     esac
   done <<< "$rows"
+  for tool in $needs; do
+    case "$entries" in *"brew \"$tool\""*) ;; *) entries="${entries}brew \"$tool\""$'\n' ;; esac
+  done
   rm -f "$dir/Brewfile" "$dir/Brewfile.mas"
   [ -z "$entries" ] || printf '%s%s' "$taps" "$entries" > "$dir/Brewfile"
   [ -z "$store" ] || printf 'brew "mas"\n%s' "$store" > "$dir/Brewfile.mas"
@@ -147,5 +173,18 @@ print_package_list() {
     fi
     case " $1 " in *" $id "*) mark=x ;; *) mark=" " ;; esac
     printf '  [%s] %-24s %-9s %s\n' "$mark" "$id" "$(package_state "$source" "$check")" "$description"
+  done <<< "$rows"
+}
+
+# manual_package_hints "<selected ids>" -> one line per selected "manual"
+# package whose app is missing: where to get it
+manual_package_hints() {
+  local rows id source ref check _category description
+  rows="$(catalog_rows)" || return 2
+  while IFS=$'\t' read -r id source ref check _category description; do
+    [ "$source" = manual ] || continue
+    case " $1 " in *" $id "*) ;; *) continue ;; esac
+    [ "$(package_state manual "$check")" = installed ] && continue
+    echo "  - Install $check by hand ($description): $ref"
   done <<< "$rows"
 }

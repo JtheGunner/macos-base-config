@@ -147,6 +147,8 @@ step_brew() {
     return 1
   fi
   dir="$(mktemp -d "${tmp_root%/}/macos-base-config.XXXXXX")" || return 1
+  # packages in ~/.local/bin / ~/go/bin count as installed: no pipx / uv / go for them
+  user_bin_dirs_on_path
   if ! write_brewfiles "$dir" "$SELECTED_PACKAGES"; then
     rm -rf "$dir"
     return 1
@@ -167,6 +169,73 @@ step_brew() {
   [ -z "$failed" ] && return 0
   STEP_FAIL_REASON="$failed"
   return 1
+}
+
+# install_extra SOURCE REF -> install one package of an extras source (dry
+# run: print only). A script is fetched first, then run, like the Homebrew
+# installer.
+install_extra() {
+  local installer
+  case "$1" in
+    script)
+      echo "+ curl --proto '=https' --tlsv1.2 -fsSL $2 | bash"
+      $DRY_RUN && return 0
+      installer="$(curl --proto '=https' --tlsv1.2 -fsSL "$2")" || return 1
+      /bin/bash -c "$installer" ;;
+    npm) run_cmd npm install -g "$2" ;;
+    pipx) run_cmd pipx install "$2" ;;
+    uv) run_cmd uv tool install "$2" ;;
+    go) run_cmd go install "$2@latest" ;;
+  esac
+}
+
+# step_extras -> install the selected script / npm / pipx / uv / go packages
+# whose command is missing. The tools come from the brew step (npm: from
+# Node, which nvm installs). A failing package doesn't stop the others.
+step_extras() {
+  local rows id source ref check _category _description tool
+  local selected=false failed="" need_node=""
+  rows="$(catalog_rows)" || { STEP_FAIL_REASON="package catalog"; return 1; }
+  # Homebrew's pipx / uv / go, also when brew isn't on this shell's PATH yet
+  find_brew >/dev/null 2>&1 || true
+  user_bin_dirs_on_path
+  # rows on fd 3: an installer that reads stdin must not eat the rest
+  while IFS=$'\t' read -r id source ref check _category _description <&3; do
+    case " $SELECTED_PACKAGES " in *" $id "*) ;; *) continue ;; esac
+    case "$source" in script | npm | pipx | uv | go) ;; *) continue ;; esac
+    selected=true
+    if [ "$(package_state "$source" "$check")" = installed ]; then
+      echo "  $id: $check already installed"
+      continue
+    fi
+    tool="$source"
+    [ "$source" = script ] && tool=curl
+    if ! $DRY_RUN && ! command -v "$tool" >/dev/null 2>&1; then
+      if [ "$source" = npm ]; then
+        echo "  $id: skipped - install Node first (e.g. nvm install --lts)"
+        need_node="$need_node $id"
+      else
+        echo "  $id: $tool not found - run ./bootstrap.sh brew"
+        failed="$failed $id"
+      fi
+      continue
+    fi
+    if ! install_extra "$source" "$ref"; then
+      failed="$failed $id"
+    elif ! $DRY_RUN && ! command -v "$check" >/dev/null 2>&1; then
+      echo "  $id: installed, but $check is not on PATH - add its directory to PATH (e.g. in the dotfiles)"
+    fi
+  done 3<<< "$rows"
+  if ! $selected; then
+    skip "no extra packages selected"
+    return 0
+  fi
+  if [ -n "$failed" ]; then
+    STEP_FAIL_REASON="failed:$failed"
+    return 1
+  fi
+  [ -z "$need_node" ] || skip "install Node first (e.g. nvm install --lts) for:$need_node"
+  return 0
 }
 
 # wait_for_karabiner_config -> start Karabiner-Elements once so it creates
@@ -398,4 +467,5 @@ step_manual() {
   fi
   echo "  - Sidebar settings: Settings > Expert > Backups > restore the backup the apps step added"
   echo "  - Licenses: enter the AltTab (Pro) and Sidebar keys from your password manager"
+  manual_package_hints "$SELECTED_PACKAGES"
 }

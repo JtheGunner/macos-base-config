@@ -56,6 +56,7 @@ the summary at the end (exit code 1), it never aborts the rest.
    │
    ├─ repos       clone / pull each sibling repo (repos.txt) into the parent folder
    ├─ brew        Homebrew (installed if missing) + the selected packages (default: Karabiner, AltTab, Sidebar, font)
+   ├─ extras      selected packages from outside Homebrew: install scripts, npm, pipx, uv, go
    ├─ karabiner   Karabiner config → ~/.config/karabiner   (starts Karabiner once if needed)
    ├─ keyboard    Custom Swiss German layout → ~/Library/Keyboard Layouts, enabled + selected
    ├─ macos       macos-defaults.py: system hotkeys, Finder shortcut, font smoothing (+ Gatekeeper, opt-in)
@@ -84,6 +85,7 @@ step named, every step runs.
 |:--:|-------------|-----------------------------------------------------|
 | 📥 | `repos`     | clone missing / pull existing sibling repos         |
 | 🍺 | `brew`      | Homebrew installer if missing, `brew bundle` of the selected packages |
+| 🧩 | `extras`    | install scripts, `npm -g`, `pipx`, `uv tool`, `go install` for the selected packages |
 | ⌨️  | `karabiner` | `karabiner-windows-keyboard-mapping-macos/apply.sh` |
 | 🇨🇭 | `keyboard`  | layout copy + `enable-input-source.swift`           |
 | 🛠️ | `macos`     | `macos-defaults.py`, Gatekeeper if opted in         |
@@ -281,8 +283,22 @@ is mandatory**: pick what this Mac gets with `PACKAGES` in the
 
 ```sh
 ./bootstrap.sh --list-packages   # the catalog: [x] selected, installed / missing
-./bootstrap.sh brew              # install the selection
+./bootstrap.sh brew extras       # install the selection
 ```
+
+Where a package comes from decides which step installs it:
+
+| Source    | Installed by                                   | Step     |
+|-----------|------------------------------------------------|----------|
+| `formula` | `brew bundle` (`brew "…"`)                     | `brew`   |
+| `cask`    | `brew bundle` (`cask "…"`)                     | `brew`   |
+| `mas`     | `brew bundle` (`mas "…"`), App Store           | `brew`   |
+| `script`  | the vendor's install script (`curl … \| bash`) | `extras` |
+| `npm`     | `npm install -g`                               | `extras` |
+| `pipx`    | `pipx install`                                 | `extras` |
+| `uv`      | `uv tool install`                              | `extras` |
+| `go`      | `go install …@latest`                          | `extras` |
+| `manual`  | you: the `manual` step prints the download link | `manual` |
 
 | `PACKAGES`                    | Installs                                        |
 |-------------------------------|-------------------------------------------------|
@@ -307,6 +323,13 @@ The `@base` packages:
 - App Store packages need you signed in to the App Store. Paid apps must
   already belong to your Apple ID.
 - Apps outside the catalog go in your own Brewfile: set `BREW_BUNDLE_EXTRA`.
+- `pipx`, `uv` and `go` are installed by the `brew` step when a selected
+  package needs them. `npm` packages need Node: `nvm install --lts` first.
+- A package whose command is already on your `PATH` is left alone, however it
+  was installed. `~/.local/bin` and `~/go/bin` (where pipx, `uv tool`,
+  `go install` and most install scripts put commands) count too; put them on
+  your shell's `PATH` to use what lands there.
+- Install scripts are fetched over https only.
 
 ### App settings
 
