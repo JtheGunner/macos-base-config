@@ -281,6 +281,19 @@ VS Code / editor font. Paste into *Preferences: Open User Settings (JSON)*:
 
 ---
 
+## 🤝 Contributing
+
+Issues and pull requests are welcome. Run the [tests](#-tests) before opening a
+PR; for larger changes, open an issue first.
+
+---
+
+## 📄 License
+
+[MIT](LICENSE)
+
+---
+
 <div align="center">
 <sub>Windows habits, Mac hardware: one <code>./bootstrap.sh</code> away.</sub>
 </div>
