@@ -7,6 +7,7 @@
 #   ./bootstrap.sh --skip dotfiles   run every step but these
 #   ./bootstrap.sh --dry-run         show what would happen
 #   ./bootstrap.sh --list-packages   what PACKAGES can pick, and what is picked
+#   ./bootstrap.sh --save-settings   save the app settings into SETTINGS_DIR
 #   ./bootstrap.sh --help            all options; --list for the steps
 #
 # Per-machine settings: ~/.config/macos-base-config/config.sh (see
@@ -33,6 +34,12 @@ if [ "$ACTION" = list-packages ]; then
   user_bin_dirs_on_path
   print_package_list "$SELECTED_PACKAGES" || exit 2
   exit 0
+fi
+if [ "$ACTION" = save-settings ]; then
+  # the words after --save-settings are app ids, not steps
+  # shellcheck disable=SC2086
+  save_settings $CLI_STEPS
+  exit $?
 fi
 
 # command-line steps replace the configured default; --skip adds to the config's

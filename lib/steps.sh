@@ -411,6 +411,26 @@ step_editor() {
   run_in "$HERE/editor-settings" python3 apply.py
 }
 
+# save_settings [ID...] -> export the app settings (all, or these registry
+# ids) into SETTINGS_DIR; the secret guard checks every file. When
+# SETTINGS_DIR is in a git repo (the private config repo), show what changed -
+# committing is left to you. Returns the export's exit code.
+save_settings() {
+  local rc=0
+  if $DRY_RUN; then
+    echo "+ python3 $HERE/apps/app_settings.py export --dir $SETTINGS_DIR $*"
+    return 0
+  fi
+  show_cmd python3 "$HERE/apps/app_settings.py" export --dir "$SETTINGS_DIR" "$@" || rc=$?
+  if git -C "$SETTINGS_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo
+    git -C "$SETTINGS_DIR" status --short
+    git -C "$SETTINGS_DIR" diff --stat
+    echo "  review the changes, then commit and push them in $SETTINGS_DIR"
+  fi
+  return $rc
+}
+
 step_apps() {
   if [ ! -d "$SETTINGS_DIR" ]; then
     skip "no settings dir: $SETTINGS_DIR"
