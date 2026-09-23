@@ -371,4 +371,86 @@ run_bootstrap
 assert_eq "$RC" 2
 assert_eq "$(cat "$LOG")" ""
 
+# --- the dotfiles step ------------------------------------------------------
+# dotfiles_stub [EXIT] -> dotfiles/bootstrap.sh stub that also logs the
+# DOTFILES_TERMINALS it was given
+dotfiles_stub() {
+  printf '#!/bin/bash\necho "dotfiles/bootstrap.sh terminals=[$DOTFILES_TERMINALS] $*" >> "%s"\nexit %s\n' \
+    "$LOG" "${1:-0}" > "$SB/parent/dotfiles/bootstrap.sh"
+  chmod +x "$SB/parent/dotfiles/bootstrap.sh"
+}
+
+it "dotfiles runs its bootstrap, terminals passed, no --yes by default"
+make_sandbox
+dotfiles_stub
+sandbox_config 'DOTFILES_TERMINALS="kitty"'
+run_bootstrap --no-pull dotfiles
+assert_eq "$RC" 0
+assert_eq "$(cat "$LOG")" "dotfiles/bootstrap.sh terminals=[kitty] "
+assert_contains "$OUT" "  dotfiles   ok"
+
+it "DOTFILES_ASSUME_YES=1 passes --yes"
+make_sandbox
+dotfiles_stub
+sandbox_config 'DOTFILES_ASSUME_YES=1'
+run_bootstrap --no-pull dotfiles
+assert_eq "$(cat "$LOG")" "dotfiles/bootstrap.sh terminals=[] --yes"
+
+it "a failing dotfiles bootstrap fails only that step"
+make_sandbox
+dotfiles_stub 1
+run_bootstrap --no-pull dotfiles manual
+assert_eq "$RC" 1
+assert_contains "$OUT" "  dotfiles   failed   (exit 1)"
+assert_contains "$OUT" "  manual     ok"
+
+it "dotfiles without Homebrew fails with a hint"
+make_sandbox
+rm "$SB/bin/brew"
+run_bootstrap --no-pull dotfiles
+assert_eq "$RC" 1
+assert_contains "$OUT" "Homebrew required"
+assert_eq "$(cat "$LOG")" ""
+
+it "own omnishell config is copied after the dotfiles run, then applied"
+make_sandbox
+echo 'x = 1' > "$SB/omni.toml"
+sandbox_config "DOTFILES_OMNISHELL_CONFIG=\"$SB/omni.toml\""
+run_bootstrap --no-pull dotfiles
+assert_eq "$RC" 0
+assert_eq "$(cat "$SB/home/.config/omnishell/config.toml")" "x = 1"
+assert_eq "$(head -1 "$LOG")" "dotfiles/bootstrap.sh "
+assert_eq "$(tail -1 "$LOG")" "omnishell apply -y"
+
+it "a failing omnishell apply fails the step"
+make_sandbox
+echo 'x = 1' > "$SB/omni.toml"
+sandbox_config "DOTFILES_OMNISHELL_CONFIG=\"$SB/omni.toml\""
+stub "$SB/bin/omnishell" omnishell 1
+run_bootstrap --no-pull dotfiles
+assert_eq "$RC" 1
+assert_contains "$OUT" "  dotfiles   failed   (omnishell config)"
+
+it "dry run shows the dotfiles commands but runs nothing"
+make_sandbox
+echo 'x = 1' > "$SB/omni.toml"
+sandbox_config "DOTFILES_OMNISHELL_CONFIG=\"$SB/omni.toml\"" 'DOTFILES_ASSUME_YES=1'
+run_bootstrap --dry-run --no-pull dotfiles
+assert_eq "$RC" 0
+assert_contains "$OUT" "bash $SB/parent/dotfiles/bootstrap.sh --yes"
+assert_contains "$OUT" "+ omnishell apply -y"
+assert_eq "$(cat "$LOG")" ""
+[ -e "$SB/home/.config/omnishell/config.toml" ] && fail "config copied in dry run"
+
+it "DOTFILES_DIR with spaces and ~ is used, cloned from DOTFILES_URL"
+make_sandbox
+sandbox_config 'DOTFILES_DIR="~/my dots"' 'DOTFILES_URL="https://example.invalid/fork.git"'
+run_bootstrap --dry-run dotfiles
+assert_eq "$RC" 0
+assert_contains "$OUT" "+ git clone https://example.invalid/fork.git $SB/home/my dots"
+assert_contains "$OUT" "bash $SB/home/my dots/bootstrap.sh"
+run_bootstrap --dry-run repos
+assert_contains "$OUT" "+ git clone https://example.invalid/fork.git $SB/home/my dots"
+assert_not_contains "$OUT" "$SB/parent/dotfiles"
+
 echo "all $COUNT cases passed"

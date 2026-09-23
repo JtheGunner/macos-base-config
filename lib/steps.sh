@@ -127,6 +127,40 @@ step_vscode() {
   run_in "$HERE/ide-keymaps" ./port-vscode.sh
 }
 
+step_dotfiles() {
+  local dir omnishell_target rc=0
+  dir="$(sibling_dir dotfiles)"
+  ensure_sibling dotfiles "$(dotfiles_url)" "$dir" || return 1
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "  Homebrew required - install it first (README: Apps)" >&2
+    STEP_FAIL_REASON="Homebrew missing"
+    return 1
+  fi
+
+  # dotfiles/bootstrap.sh has no dry-run mode: only show the command then.
+  # It runs with set -e in its own process; its exit code decides the step.
+  set --
+  [ "$DOTFILES_ASSUME_YES" = 1 ] && set -- --yes
+  echo "+ DOTFILES_TERMINALS=\"$DOTFILES_TERMINALS\" bash $dir/bootstrap.sh $*"
+  if ! $DRY_RUN; then
+    DOTFILES_TERMINALS="$DOTFILES_TERMINALS" bash "$dir/bootstrap.sh" "$@" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      STEP_FAIL_REASON="exit $rc"
+      return 1
+    fi
+  fi
+
+  [ -n "$DOTFILES_OMNISHELL_CONFIG" ] || return 0
+  # after the dotfiles bootstrap, which installs the repo's own copy every run
+  omnishell_target="${XDG_CONFIG_HOME:-$HOME/.config}/omnishell/config.toml"
+  if ! { run_cmd mkdir -p "$(dirname "$omnishell_target")" &&
+    run_cmd cp "$DOTFILES_OMNISHELL_CONFIG" "$omnishell_target" &&
+    run_cmd omnishell apply -y; }; then
+    STEP_FAIL_REASON="omnishell config"
+    return 1
+  fi
+}
+
 step_manual() {
   echo "  - Karabiner permissions: karabiner-windows-keyboard-mapping-macos/setup.sh prints them"
   echo "  - Swiss keyboard layout: swiss-windows-keyboard-layout-macos/README.md"
