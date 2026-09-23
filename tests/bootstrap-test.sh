@@ -103,6 +103,10 @@ for o in --skip --dry-run --no-pull --config --list --help; do
   assert_contains "$out" "$o"
 done
 
+# --- lib/packages.sh (sourced before lib/config.sh, which uses it) ----------
+HERE="$REPO"
+. "$REPO/lib/packages.sh"
+
 # --- lib/config.sh ----------------------------------------------------------
 . "$REPO/lib/config.sh"
 # physical path: macOS TMPDIR ends in "/" and sits behind the /var symlink,
@@ -150,6 +154,79 @@ it "expand_home leaves other paths alone"
 assert_eq "$(HOME=/h expand_home "~")" "/h"
 assert_eq "$(HOME=/h expand_home "/a/~b")" "/a/~b"
 assert_eq "$(HOME=/h expand_home "")" ""
+
+# --- lib/packages.sh --------------------------------------------------------
+# write_catalog LINE... -> $TMP/catalog.txt, prints its path
+write_catalog() { printf '%s\n' "$@" > "$TMP/catalog.txt"; echo "$TMP/catalog.txt"; }
+
+TEST_CATALOG_LINES=(
+  '# id | source | ref | check | category | description'
+  'gh        | formula | gh              | -        | cli    | GitHub CLI'
+  'tool      | formula | user/tap/tool   | -        | cli    | a tapped formula'
+  'firefox   | cask    | firefox         | Firefox  | web    | Web browser'
+  'app       | cask    | user/tap/app    | Some App | web    | a tapped cask'
+  'whatsapp  | mas     | 310633997       | WhatsApp | chat   | Messenger (App Store)'
+  'claude    | script  | https://x/i.sh  | claude   | chat   | not a brew package'
+)
+
+it "the shipped catalog parses and @base is today's Brewfile"
+catalog_rows >/dev/null; rc=$?
+assert_eq "$rc" 0
+assert_eq "$(select_packages "@base")" "karabiner-elements alt-tab sidebar font-jetbrains-mono"
+
+it "catalog rows are trimmed and tab-separated; a | in the description is kept"
+f="$(write_catalog '' '# comment' "  gh |formula|	gh |  -  | cli | GitHub CLI | the official one  ")"
+assert_eq "$(PACKAGE_CATALOG="$f" catalog_rows)" "$(printf 'gh\tformula\tgh\t-\tcli\tGitHub CLI | the official one')"
+
+it "catalog problems are reported with their line number"
+f="$(write_catalog \
+  'ok    | formula | ok  | -   | cli | fine' \
+  'short | formula | x   | -   | cli' \
+  'bad   | rpm     | x   | -   | cli | unknown source' \
+  'ok    | formula | ok  | -   | cli | again' \
+  'empty | formula |     | -   | cli | no ref' \
+  'm     | mas     | abc | App | cli | not a number' \
+  'Upper | formula | x   | -   | cli | bad id' \
+  'x2    | formula | x   | -   | all | reserved category')"
+out="$(PACKAGE_CATALOG="$f" catalog_rows 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "$f:2: expected 6 columns"
+assert_contains "$out" "$f:3: unknown source: rpm"
+assert_contains "$out" "$f:4: duplicate id: ok (first on line 1)"
+assert_contains "$out" "$f:5: empty column"
+assert_contains "$out" "$f:6: mas needs a numeric App Store id and the app name"
+assert_contains "$out" "$f:7: invalid id: Upper"
+assert_contains "$out" "$f:8: category @all is reserved"
+
+it "a missing catalog is exit 2"
+out="$(PACKAGE_CATALOG="$TMP/nope.txt" catalog_rows 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "package catalog not found: $TMP/nope.txt"
+
+it "selection: ids, categories, @all, removals, catalog order"
+f="$(write_catalog "${TEST_CATALOG_LINES[@]}")"
+assert_eq "$(PACKAGE_CATALOG="$f" select_packages "firefox gh")" "gh firefox"
+assert_eq "$(PACKAGE_CATALOG="$f" select_packages "@cli whatsapp")" "gh tool whatsapp"
+assert_eq "$(PACKAGE_CATALOG="$f" select_packages "@all -@web -claude")" "gh tool whatsapp"
+assert_eq "$(PACKAGE_CATALOG="$f" select_packages "-gh @cli")" "tool"
+assert_eq "$(PACKAGE_CATALOG="$f" select_packages "gh gh @cli")" "gh tool"
+assert_eq "$(PACKAGE_CATALOG="$f" select_packages "")" ""
+
+it "tokens may span lines"
+assert_eq "$(PACKAGE_CATALOG="$f" select_packages "$(printf 'gh\n  firefox\t')")" "gh firefox"
+
+it "unknown tokens are exit 2 with a message; globs are not expanded"
+out="$(PACKAGE_CATALOG="$f" select_packages "gh bogus" 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "unknown package: bogus (see ./bootstrap.sh --list-packages)"
+out="$(PACKAGE_CATALOG="$f" select_packages "@nope" 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "unknown package category: @nope"
+out="$(PACKAGE_CATALOG="$f" select_packages "-" 2>&1)"; rc=$?
+assert_eq "$rc" 2
+out="$(cd "$REPO" && PACKAGE_CATALOG="$f" select_packages "*" 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "unknown package: *"
 
 it "missing explicit config is exit 2"
 out="$(load_config "$TMP/missing.sh" 2>&1)"; rc=$?

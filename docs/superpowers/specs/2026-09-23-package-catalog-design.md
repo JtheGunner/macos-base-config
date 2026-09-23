@@ -26,18 +26,19 @@ Out of scope:
 
 ```text
 packages/catalog.txt        the catalog: one package per line
-packages/packages.py        catalog parser, selection, Brewfile generation,
-                            non-brew installers, --list output
+lib/packages.sh             catalog parser, selection, Brewfile generation,
+                            non-brew installers, --list-packages output
 packages/nas-mount.applescript  template for the nas-mount applet
 apps/app_settings.py        export/apply against the settings dir (no data in repo)
-lib/steps.sh                brew + new extras step call packages.py
+lib/steps.sh                brew + new extras step call lib/packages.sh
 lib/config.sh               PACKAGES, SETTINGS_DIR, NAS_MOUNT_SHARES
 Brewfile                    removed (replaced by the catalog)
 apps/alttab.plist, apps/sidebar.sidebarbackup   removed from the repo
 ```
 
-Python 3 (macOS system Python 3.9 is enough, so no `tomllib`) does the catalog
-work. Bash stays the orchestrator, as with `apps/` and `editor-settings/`.
+The catalog code is bash + awk (`lib/packages.sh`): `PACKAGES` is resolved
+while the config loads, before the `brew` step, and on a Mac without the
+Command Line Tools `/usr/bin/python3` only opens their install dialog.
 
 ## Catalog format
 
@@ -293,7 +294,7 @@ stubs for `brew`, `mas`, `npm`, `pipx`, `uv`, `go`, `curl`, `osacompile`,
 
 1. **Catalog + selection + brew step**
    - Adds `catalog.txt` with the `base` entries only.
-   - Adds `packages.py` (parse, select, Brewfile generation, `--list-packages`),
+   - Adds `lib/packages.sh` (parse, select, Brewfile generation, `--list-packages`),
      `PACKAGES` in the config, and removes `Brewfile`.
    - Karabiner hint, README.
 2. **extras step**: `script`/`npm`/`pipx`/`uv`/`go` handlers and `manual` hints.
