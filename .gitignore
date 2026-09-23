@@ -4,3 +4,6 @@
 restore-*.sh
 *.plist.bak-*
 ide-keymaps/*.xml.bak-*
+# private app settings live in SETTINGS_DIR, never in this public repo
+apps/*.plist
+apps/*.sidebarbackup

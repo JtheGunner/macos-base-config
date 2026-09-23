@@ -802,26 +802,11 @@ OUT="$(env -u XDG_CONFIG_HOME HOME="$AH" PATH="$AB:$PATH" APPLICATIONS_DIR="$AAP
 assert_eq "$?" 0
 [ -f "$AH/.config/macos-base-config/alttab.plist" ] || fail "default dir not used: $OUT"
 
-it "the tracked app settings hold no license data"
-for f in "$REPO/apps/alttab.plist" "$REPO/apps/sidebar.sidebarbackup"; do
-  [ -f "$f" ] || fail "missing $f"
-done
-leaks="$(py '
-def keys(value):
-    if isinstance(value, dict):
-        for k, v in value.items():
-            yield k
-            yield from keys(v)
-    elif isinstance(value, list):
-        for v in value:
-            yield from keys(v)
-alttab = plistlib.load(open(sys.argv[1], "rb"))
-sidebar = plistlib.load(open(sys.argv[2], "rb"))
-found = list(keys(alttab)) + list(keys(sidebar))
-found += list(keys(json.loads(sidebar["portableSettingsData"])))
-found += list(keys(plistlib.loads(sidebar["preferencesPlist"])))
-print([k for k in found if "licen" in k.lower()])' "$REPO/apps/alttab.plist" "$REPO/apps/sidebar.sidebarbackup")"
-assert_eq "$leaks" "[]"
+it "no app settings are tracked in this public repo"
+tracked="$(git -C "$REPO" ls-files apps)"
+assert_eq "$tracked" "apps/app_settings.py"
+assert_contains "$(cat "$REPO/.gitignore")" "apps/*.plist"
+assert_contains "$(cat "$REPO/.gitignore")" "apps/*.sidebarbackup"
 
 # --- end to end: bootstrap.sh in a sandbox ----------------------------------
 # stub PATH LABEL [EXIT] -> executable that appends "LABEL <args>" to $LOG
