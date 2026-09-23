@@ -4,3 +4,6 @@
 
 swiss-windows-keyboard-layout-macos       git@github.com:JtheGunner/swiss-windows-keyboard-layout-macos.git
 karabiner-windows-keyboard-mapping-macos  git@github.com:JtheGunner/karabiner-windows-keyboard-mapping-macos.git  ./apply.sh
+# no apply-command: bootstrap.sh ports it via ide-keymaps/port-vscode.sh (with layers)
+# after the JetBrains keymap is in place
+intelli-key-port                          git@github.com:JtheGunner/intelli-key-port.git

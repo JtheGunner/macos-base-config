@@ -1,0 +1,33 @@
+// ============================================================================
+// Personal layer for intelli-key-port (JetBrains keymap -> VS Code family).
+// Stacked last, on top of the repo's `windows-keymap` and `karabiner-winkeys`
+// layers - see ./port-vscode.sh. Deliberate deviations from a faithful port
+// of `jeffry-default-macos-win`; comment each one.
+// ============================================================================
+{
+  "dropActions": [
+    // Ctrl+Y is Redo here (see `entries` below), not PhpStorm's "Delete Line".
+    "EditorDeleteLine"
+  ],
+
+  "entries": [
+    // Windows / VS Code convention Ctrl+Y = Redo instead of PhpStorm's Delete Line.
+    { "key": "ctrl+y",       "command": "redo",                              "when": "!editorReadonly && !terminalFocus" },
+
+    // Ctrl+S saves the current file (the keymap has Save All; auto-save covers the rest).
+    { "key": "ctrl+s",       "command": "workbench.action.files.save" },
+
+    // Settings on Ctrl+, only (not also on Ctrl+Alt+S).
+    { "key": "ctrl+,",       "command": "workbench.action.openSettings" },
+    { "key": "ctrl+alt+s",   "command": "-workbench.action.openSettings" },
+
+    // Shift+Enter in the terminal sends ESC CR: a newline in Claude Code / REPLs.
+    { "key": "shift+enter",  "command": "workbench.action.terminal.sendSequence", "args": { "text": "\u001b\r" }, "when": "terminalFocus" },
+
+    // Zoom on the numpad (the keymap folds / unfolds there).
+    { "key": "ctrl+numpad_add",       "command": "workbench.action.zoomIn" },
+    { "key": "ctrl+shift+numpad_add", "command": "workbench.action.zoomIn" },
+    { "key": "ctrl+numpad_subtract",  "command": "workbench.action.zoomOut" },
+    { "key": "ctrl+numpad0",          "command": "workbench.action.zoomReset" }
+  ]
+}

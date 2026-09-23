@@ -25,7 +25,7 @@ listed below.
 | **Windows key *behaviour*** (`Ctrl+C/V/Z`, word jump, `Alt+F4`, …) — Karabiner | [`karabiner-windows-keyboard-mapping-macos`](https://github.com/JtheGunner/karabiner-windows-keyboard-mapping-macos) | `./setup.sh` (fresh) or `./apply.sh` |
 | **macOS‑level shortcuts Karabiner can't do** (see below) | `macos-defaults.py` (this repo) | `python3 macos-defaults.py` |
 | **JetBrains keymap** `jeffry-default-macos-win` | `ide-keymaps/` (this repo) | `ide-keymaps/apply.sh` — see [its README](ide-keymaps/README.md) |
-| **VS Code / Antigravity keybindings** (generated from the JetBrains keymap) | [`phpstorm-keymap-port`](https://github.com/JtheGunner/phpstorm-keymap-port) | `./port.py` |
+| **VS Code / Antigravity keybindings** (generated from the JetBrains keymap) | [`intelli-key-port`](https://github.com/JtheGunner/intelli-key-port) + layers from `ide-keymaps/` (this repo) | `ide-keymaps/port-vscode.sh` — never a bare `./port.py` |
 | **shell / prompt / ghostty** | [`dotfiles`](https://github.com/JtheGunner/dotfiles) | `bootstrap.sh` |
 
 ## macOS‑level shortcuts Karabiner can't do

@@ -34,11 +34,13 @@ echo "== macOS defaults"
 step python3 "$HERE/macos-defaults.py" "${DRYFLAG[@]}"
 
 echo
-echo "== JetBrains keymap (if an IDE config is present)"
+echo "== JetBrains keymap + VS Code family keybindings (if an IDE config is present)"
 if find "$HOME/Library/Application Support/JetBrains" -maxdepth 1 -name 'PhpStorm*' -o -name 'IntelliJIdea*' 2>/dev/null | grep -q .; then
   ( cd "$HERE/ide-keymaps" && step ./apply.sh "${DRYFLAG[@]}" )
+  ( cd "$HERE/ide-keymaps" && step ./port-vscode.sh "${DRYFLAG[@]}" )
 else
-  echo "  -> no JetBrains IDE config yet; run ide-keymaps/apply.sh after installing PhpStorm"
+  echo "  -> no JetBrains IDE config yet; after installing PhpStorm run"
+  echo "     ide-keymaps/apply.sh, then ide-keymaps/port-vscode.sh"
 fi
 
 echo
