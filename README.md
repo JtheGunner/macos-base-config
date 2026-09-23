@@ -63,7 +63,7 @@ the summary at the end (exit code 1), it never aborts the rest.
    ├─ jetbrains   JetBrains keymap → IDE config, set active (skipped until PhpStorm has a config)
    ├─ vscode      same keymap → VS Code / Antigravity         (same condition)
    ├─ editor      font settings → settings.json of every VS Code-family editor
-   ├─ apps        AltTab settings; Sidebar backup → its backup list, from SETTINGS_DIR   (no licenses)
+   ├─ apps        app settings from SETTINGS_DIR, per apps/registry.txt   (no licenses)
    ├─ dotfiles    the dotfiles repo's own bootstrap.sh: shell, prompt, git, tmux, Ghostty
    ├─ manual      print the manual steps
    └─ summary     ok / skipped / failed per step
