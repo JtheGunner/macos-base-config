@@ -264,6 +264,10 @@ step_vscode() {
   run_in "$HERE/ide-keymaps" ./port-vscode.sh
 }
 
+step_editor() {
+  run_in "$HERE/editor-settings" python3 apply.py
+}
+
 LOCAL_RC_BEGIN="# >>> macos-base-config >>>"
 LOCAL_RC_END="# <<< macos-base-config <<<"
 

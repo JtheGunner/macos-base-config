@@ -61,6 +61,7 @@ the summary at the end (exit code 1), it never aborts the rest.
    ├─ macos       macos-defaults.py: system hotkeys, Finder shortcut, font smoothing (+ Gatekeeper, opt-in)
    ├─ jetbrains   JetBrains keymap → IDE config, set active (skipped until PhpStorm has a config)
    ├─ vscode      same keymap → VS Code / Antigravity         (same condition)
+   ├─ editor      font settings → settings.json of every VS Code-family editor
    ├─ dotfiles    the dotfiles repo's own bootstrap.sh: shell, prompt, git, tmux, Ghostty
    ├─ manual      print the manual steps
    └─ summary     ok / skipped / failed per step
@@ -87,6 +88,7 @@ step named, every step runs.
 | 🛠️ | `macos`     | `macos-defaults.py`, Gatekeeper if opted in         |
 | 🧠 | `jetbrains` | `ide-keymaps/apply.sh`                              |
 | 💻 | `vscode`    | `ide-keymaps/port-vscode.sh`                        |
+| 🔤 | `editor`    | `editor-settings/apply.py`                          |
 | 🐚 | `dotfiles`  | `dotfiles/bootstrap.sh`                             |
 | ✋ | `manual`    | print the manual steps                              |
 
@@ -290,16 +292,22 @@ everything in the [`Brewfile`](Brewfile):
 
 ## 🔤 Fonts
 
-The `brew` step installs JetBrains Mono. To use it in VS Code / Antigravity,
-paste into *Preferences: Open User Settings (JSON)*:
+The `brew` step installs JetBrains Mono. The `editor` step sets the keys from
+[`editor-settings/vscode.jsonc`](editor-settings/vscode.jsonc) (font family,
+size, weight) in the `User/settings.json` of every VS Code-family editor it
+finds: VS Code, VS Code Insiders, VSCodium, Cursor, Windsurf, Antigravity,
+Antigravity IDE.
 
-```json
-{
-  "editor.fontFamily": "'JetBrains Mono', 'Menlo', 'Monaco', 'Courier New', monospace",
-  "editor.fontSize": 12,
-  "editor.fontWeight": "100"
-}
+```sh
+./bootstrap.sh editor --dry-run   # diff per settings.json
+./bootstrap.sh editor
 ```
+
+- Only those keys change; comments and every other setting stay as they are.
+- A changed file is backed up first (`settings.json.bak-<timestamp>`); a file
+  that already has the values is not touched.
+- To change the font, edit `editor-settings/vscode.jsonc` and run the step
+  again. The editors pick up the new settings without a restart.
 
 ---
 
