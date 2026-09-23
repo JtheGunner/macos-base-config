@@ -41,6 +41,14 @@ assert_eq "$(select_steps "macos macos keymaps jetbrains" "")" "macos jetbrains 
 it "extra whitespace is ignored"
 assert_eq "$(select_steps "  macos   manual " "")" "macos manual"
 
+it "lists spanning several lines are read in full"
+assert_eq "$(select_steps "keymaps
+dotfiles" "")" "jetbrains vscode dotfiles"
+assert_eq "$(select_steps "" "
+  dotfiles
+")" "repos karabiner macos jetbrains vscode manual"
+assert_eq "$(select_steps "$(printf 'macos\tmanual')" "")" "macos manual"
+
 it "unknown step is exit 2 with a message"
 out="$(select_steps "bogus" "" 2>&1)"; rc=$?
 assert_eq "$rc" 2
@@ -426,10 +434,20 @@ it "a failing omnishell apply fails the step"
 make_sandbox
 echo 'x = 1' > "$SB/omni.toml"
 sandbox_config "DOTFILES_OMNISHELL_CONFIG=\"$SB/omni.toml\""
-stub "$SB/bin/omnishell" omnishell 1
+stub "$SB/bin/omnishell" omnishell 2
 run_bootstrap --no-pull dotfiles
 assert_eq "$RC" 1
-assert_contains "$OUT" "  dotfiles   failed   (omnishell config)"
+assert_contains "$OUT" "  dotfiles   failed   (omnishell apply exit 2)"
+
+it "omnishell apply exit 1 (degraded modules) only warns"
+make_sandbox
+echo 'x = 1' > "$SB/omni.toml"
+sandbox_config "DOTFILES_OMNISHELL_CONFIG=\"$SB/omni.toml\""
+stub "$SB/bin/omnishell" omnishell 1
+run_bootstrap --no-pull dotfiles
+assert_eq "$RC" 0
+assert_contains "$OUT" "degraded"
+assert_contains "$OUT" "  dotfiles   ok"
 
 it "dry run shows the dotfiles commands but runs nothing"
 make_sandbox

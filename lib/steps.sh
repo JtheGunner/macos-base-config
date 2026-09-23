@@ -154,11 +154,19 @@ step_dotfiles() {
   # after the dotfiles bootstrap, which installs the repo's own copy every run
   omnishell_target="${XDG_CONFIG_HOME:-$HOME/.config}/omnishell/config.toml"
   if ! { run_cmd mkdir -p "$(dirname "$omnishell_target")" &&
-    run_cmd cp "$DOTFILES_OMNISHELL_CONFIG" "$omnishell_target" &&
-    run_cmd omnishell apply -y; }; then
+    run_cmd cp "$DOTFILES_OMNISHELL_CONFIG" "$omnishell_target"; }; then
     STEP_FAIL_REASON="omnishell config"
     return 1
   fi
+  # exit 1 = degraded module(s): a state, not a crash (same as the dotfiles
+  # bootstrap treats it); >= 2 = a real error
+  run_cmd omnishell apply -y || rc=$?
+  case "$rc" in
+    0) ;;
+    1) echo "  warn: omnishell reports degraded module(s) - see 'omnishell doctor'" >&2 ;;
+    *) STEP_FAIL_REASON="omnishell apply exit $rc"
+       return 1 ;;
+  esac
 }
 
 step_manual() {

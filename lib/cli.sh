@@ -43,13 +43,15 @@ expand_names() {
 # space-separated. Empty <wanted> = every step. Unknown name: return 2.
 select_steps() {
   local words wanted skipped step selected=""
-  read -r -a words <<< "$1"
+  # -d '': read the whole value, not just its first line (config lists may
+  # span lines); read -a never glob-expands. Exits 1 at EOF by design.
+  read -r -d '' -a words <<< "$1"
   if [ ${#words[@]} -eq 0 ]; then
     wanted="$ALL_STEPS"
   else
     wanted="$(expand_names "${words[@]}")" || return 2
   fi
-  read -r -a words <<< "$2"
+  read -r -d '' -a words <<< "$2"
   skipped=""
   if [ ${#words[@]} -gt 0 ]; then
     skipped="$(expand_names "${words[@]}")" || return 2
