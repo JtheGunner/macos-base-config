@@ -115,6 +115,45 @@ install_homebrew() {
   /bin/bash -c "$installer" && find_brew
 }
 
+# init_config URL DIR -> clone the private config repo into DIR (the config
+# dir) when DIR is missing or empty. A checkout of URL is left as it is; a
+# checkout of another URL or a dir with other files is exit 2, untouched.
+init_config() {
+  local url="$1" dir="$2" origin
+  if [ -d "$dir/.git" ]; then
+    origin="$(git -C "$dir" remote get-url origin 2>/dev/null)"
+    if [ "$origin" = "$url" ]; then
+      echo "already set up: $dir is a checkout of $url"
+      return 0
+    fi
+    echo "bootstrap.sh: $dir is a checkout of ${origin:-an unknown remote}, not $url" >&2
+    return 2
+  fi
+  if [ -d "$dir" ] && [ -n "$(ls -A "$dir")" ]; then
+    echo "bootstrap.sh: $dir already has files - move them away first, or make it a checkout of $url yourself" >&2
+    return 2
+  fi
+  run_cmd mkdir -p "$(dirname "$dir")" && run_cmd git clone "$url" "$dir" || return 1
+  $DRY_RUN || echo "cloned $url into $dir - next: ./bootstrap.sh"
+}
+
+# pull_config_repo -> update the private config checkout (the dir of the
+# config file) like a sibling repo: never with local changes, a failed pull
+# only warns. A pulled config.sh takes effect on the next run.
+pull_config_repo() {
+  local dir
+  dir="$(dirname "$CONFIG_FILE")"
+  [ -d "$dir/.git" ] || return 0
+  $NO_PULL && return 0
+  if [ -n "$(git -C "$dir" status --porcelain 2>/dev/null)" ]; then
+    echo "  warn: local changes in $dir - not pulled" >&2
+    return 0
+  fi
+  run_cmd git -C "$dir" pull --ff-only ||
+    echo "  warn: pull failed in $dir - using the existing checkout" >&2
+  return 0
+}
+
 step_repos() {
   local name url _rest failed=0
   # repos.txt on fd 3: a git that reads stdin (credential / host-key prompt)
@@ -125,6 +164,7 @@ step_repos() {
     [ "$name" = dotfiles ] && url="$(dotfiles_url)"
     ensure_sibling "$name" "$url" "$(sibling_dir "$name")" || failed=1
   done 3< "$HERE/repos.txt"
+  pull_config_repo
   return $failed
 }
 
