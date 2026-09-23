@@ -163,10 +163,13 @@ helpers, prints each case, exits non-zero on the first failure.
 - Config cases: syntax error, unknown step in `BOOTSTRAP_STEPS`, missing
   `--config` file, bad `DOTFILES_ASSUME_YES` → exit 2; CLI steps override
   `BOOTSTRAP_STEPS`.
-- End-to-end in a sandbox (temp dir: repo copy at `parent/macos-base-config`,
-  stub siblings with an empty `.git/` and stub scripts that log their argv, fake
-  `HOME`, stub `brew` / `omnishell` / `python3` first on `PATH`):
-  - `--dry-run` → no stub logs anything; output contains the dotfiles command.
+- End-to-end in a sandbox (temp dir: `bootstrap.sh` + `lib/` + `repos.txt`
+  copied to `parent/macos-base-config`, stub `ide-keymaps/*.sh`, stub siblings
+  with an empty `.git/` and stub scripts that log their argv, fake `HOME`, stub
+  `git` / `brew` / `omnishell` / `python3` first on `PATH`):
+  - `--dry-run` → every logged sub-tool call carries `--dry-run`; `git`, the
+    dotfiles bootstrap and `omnishell` are never called; output contains the
+    dotfiles command.
   - missing sibling + `--dry-run` → clone is announced.
   - real run `--no-pull --skip macos` with the dotfiles stub exiting 1 → other
     selected steps ran, summary shows `dotfiles  failed`, exit 1.
@@ -175,7 +178,10 @@ helpers, prints each case, exits non-zero on the first failure.
     apply -y` logged.
   - `--list` / `--help` exit 0 and name every step.
 
-`macos` never runs for real in tests (it writes live `defaults`).
+Nothing in the tests touches the real machine: `python3` (→ `macos-defaults.py`),
+the keymap scripts, `git`, `brew` and `omnishell` are all stubs. The Karabiner
+install check reads `KARABINER_APP` (default
+`/Applications/Karabiner-Elements.app`) so the sandbox can point it elsewhere.
 
 ## README
 
