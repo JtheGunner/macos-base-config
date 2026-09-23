@@ -89,7 +89,7 @@ step named, every step runs.
 | ⌨️  | `karabiner` | `karabiner-windows-keyboard-mapping-macos/apply.sh` |
 | 🇨🇭 | `keyboard`  | layout copy + `enable-input-source.swift`           |
 | 🛠️ | `macos`     | `macos-defaults.py`, Gatekeeper if opted in         |
-| 🧠 | `jetbrains` | `ide-keymaps/apply.sh`                              |
+| 🧠 | `jetbrains` | `ide-keymaps/apply.sh`; skipped while PhpStorm / IntelliJ runs |
 | 💻 | `vscode`    | `ide-keymaps/port-vscode.sh`                        |
 | 🔤 | `editor`    | `editor-settings/apply.py`                          |
 | 🗂️ | `apps`      | `apps/app_settings.py apply`                        |
@@ -250,9 +250,9 @@ them.
 |:--:|---------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
 | 🔐 | **Karabiner permissions** | Driver Extension, Input Monitoring, Accessibility. `karabiner-windows-keyboard-mapping-macos/setup.sh` opens the panes and lists the steps |
 | 🇨🇭 | **Input source**          | check *Custom Swiss German* under System Settings → Keyboard → Input Sources, then log out and in. The `keyboard` step enables it when it can |
-| 🛡️ | **Gatekeeper**            | only with `MACOS_DISABLE_GATEKEEPER=1`: confirm "Allow applications from: Anywhere" under Privacy & Security (the `macos` step opens it)    |
+| 🛡️ | **Gatekeeper**            | only with `MACOS_DISABLE_GATEKEEPER=1`: confirm "Allow applications from: Anywhere" under Privacy & Security (the `macos` step requests it and opens the pane; since macOS 15 the change only takes effect once confirmed there) |
 | 📌 | **Sidebar settings**      | only when Sidebar is installed and its backup is in `SETTINGS_DIR`: Sidebar → Settings → Expert → Backups → **Restore** the backup the `apps` step added (Sidebar has no way to import from a script) |
-| 🔑 | **Licenses**              | the installed ones of AltTab (Pro) and Sidebar: enter the keys from your password manager in each app                                      |
+| 🔑 | **Licenses**              | the installed ones of AltTab (Pro), Sidebar and Shottr: enter the keys from your password manager in each app; Tabby asks for its vault passphrase |
 
 ---
 
@@ -422,7 +422,7 @@ password manager once per Mac.
 |:--:|---------|--------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------|
 | 🔀 | AltTab  | `alt-tab.plist`: its preferences, minus window frames, update and telemetry state                      | merged into its preferences; a running AltTab restarts. Unchanged settings leave it alone |
 | 📋 | Maccy   | `maccy.plist`: its preferences, minus menu-bar, window and update state                                | merged into its preferences; a running Maccy restarts                             |
-| 📸 | Shottr  | `shottr.plist`: its preferences, **without its license** (`kc-license`, `kc-vault`, `token`), device ids and telemetry | merged into its preferences; a running Shottr restarts                            |
+| 📸 | Shottr  | `shottr.plist`: its preferences, **without its license** (`kc-license`, `kc-vault`, `token`), device ids, update checks and telemetry | merged into its preferences; a running Shottr restarts                            |
 | 🪟 | Rectangle | `rectangle.plist`: its preferences and shortcuts, minus dialog and update state                      | merged into its preferences; a running Rectangle restarts                         |
 | 🖥️ | Tabby   | `tabby.yaml`: its `config.yaml` as is, **encrypted with your Tabby vault**                             | copied in (the old one kept as `.bak-<time>`); Tabby asks for the vault passphrase from your password manager |
 | 📌 | Sidebar | `sidebar.sidebarbackup`: a Sidebar backup without license, usage data, statistics, calendars or window state | added to Sidebar's backup list; restore it there (Settings → Expert → Backups)     |

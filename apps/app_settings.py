@@ -217,9 +217,16 @@ RUNTIME_PREFIXES = ("NSWindow", "NSStatusItem", "NSNavPanel", "NSOSPLast", "NSSp
                     "NSToolbar", "NSQuitAlwaysKeepsWindows", "SU", "MSAppCenter",
                     "GATelemetry", "LaunchAtLogin__")
 SECRET_WORDS = ("licen", "token", "serial", "password", "secret")
-# keys per domain that only hold for this Mac or its license, which the
-# secret words don't catch
-DEVICE_KEYS = {"cc.ffitch.shottr": frozenset({"kc-vault", "uid", "defaultFolderBookmark"})}
+# keys per domain the secret words and runtime prefixes don't catch: license
+# data, ids and bookmarks that only hold for this Mac, and counters or update
+# checks that change on their own (they would restart the app on every apply)
+UNPORTABLE_KEYS = {
+    "cc.ffitch.shottr": frozenset({
+        "kc-vault", "uid", "defaultFolderBookmark",
+        "localEventCounter", "activeAppVersion", "latestBuild", "latestVersionCode",
+        "latestVersionPackageUrl", "latestVersionURL",
+    }),
+}
 LEGACY_NAMES = {"alt-tab": "alttab.plist"}
 # seconds to wait for an app to quit before its settings are changed
 QUIT_TIMEOUT = float(os.environ.get("APP_QUIT_TIMEOUT") or 5)
@@ -277,10 +284,10 @@ def read_domain(domain: str) -> dict:
     return plistlib.loads(result.stdout) if result.returncode == 0 and result.stdout else {}
 
 
-def portable_settings(domain: dict, device_keys: frozenset = frozenset()) -> dict:
+def portable_settings(domain: dict, unportable_keys: frozenset = frozenset()) -> dict:
     return {key: value for key, value in domain.items()
             if not key.startswith(RUNTIME_PREFIXES) and not is_secret_key(key)
-            and key not in device_keys}
+            and key not in unportable_keys}
 
 
 def export_defaults(entry: Entry, settings_dir: Path) -> None:
@@ -289,7 +296,7 @@ def export_defaults(entry: Entry, settings_dir: Path) -> None:
         print(f"  {entry.app}: no settings on this Mac - skipped")
         return
     target = settings_dir / f"{entry.id}.plist"
-    settings = portable_settings(domain, DEVICE_KEYS.get(entry.where, frozenset()))
+    settings = portable_settings(domain, UNPORTABLE_KEYS.get(entry.where, frozenset()))
     write_export(target, plistlib.dumps(settings, fmt=plistlib.FMT_XML))
     print(f"  {entry.app}: {target}")
 
