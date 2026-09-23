@@ -807,8 +807,7 @@ it "the shipped app registry parses"
 python3 -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import app_settings as a
 print(",".join(e.id for e in a.load_registry(a.REGISTRY_FILE)))' "$REPO/apps" > "$TMP/reg.out" 2>&1
 assert_eq "$?" 0
-assert_contains "$(cat "$TMP/reg.out")" "alt-tab"
-assert_contains "$(cat "$TMP/reg.out")" "sidebar"
+assert_eq "$(cat "$TMP/reg.out")" "alt-tab,maccy,shottr,rectangle,tabby,sidebar"
 
 it "registry problems name their line and exit 2"
 app_sandbox
@@ -1007,6 +1006,17 @@ assert_eq "$RC" 1
 assert_contains "$OUT" "Tool: failed: secret keys in export: apiToken - not written"
 [ -e "$AS/tool.json" ] && fail "secret export written"
 [ -f "$AS/alt-tab.plist" ] || fail "AltTab not exported"
+
+it "the shipped registry exports Shottr without its license and token"
+app_sandbox
+mkdir -p "$AAPPS/Shottr.app"
+write_alttab "$AH/defaults-store/cc.ffitch.shottr.plist" afterGrabCopy=1 kc-license=L token=T \
+  "NSStatusItem VisibleCC Item-0=1" GATelemetry=1 customBackdropColor=red
+run_app_settings export shottr
+assert_eq "$RC" 0
+assert_eq "$(py 'print(sorted(plistlib.load(open(sys.argv[1], "rb"))))' "$AS/shottr.plist")" "['afterGrabCopy', 'customBackdropColor']"
+[ -e "$AS/alt-tab.plist" ] && fail "exported more than shottr"
+true
 
 it "export takes app ids, skips apps that are not installed, rejects unknown ids"
 app_sandbox

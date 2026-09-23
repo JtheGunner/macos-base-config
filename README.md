@@ -421,6 +421,10 @@ password manager once per Mac.
 |    | App     | File in `SETTINGS_DIR`                                                                                 | On `./bootstrap.sh apps`                                                          |
 |:--:|---------|--------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------|
 | 🔀 | AltTab  | `alt-tab.plist`: its preferences, minus window frames, update and telemetry state                      | merged into its preferences; a running AltTab restarts. Unchanged settings leave it alone |
+| 📋 | Maccy   | `maccy.plist`: its preferences, minus menu-bar, window and update state                                | merged into its preferences; a running Maccy restarts                             |
+| 📸 | Shottr  | `shottr.plist`: its preferences, **without its license** (`kc-license`, `token`) and telemetry        | merged into its preferences; a running Shottr restarts                            |
+| 🪟 | Rectangle | `rectangle.plist`: its preferences and shortcuts, minus dialog and update state                      | merged into its preferences; a running Rectangle restarts                         |
+| 🖥️ | Tabby   | `tabby.yaml`: its `config.yaml` as is, **encrypted with your Tabby vault**                             | copied in (the old one kept as `.bak-<time>`); Tabby asks for the vault passphrase from your password manager |
 | 📌 | Sidebar | `sidebar.sidebarbackup`: a Sidebar backup without license, usage data, statistics, calendars or window state | added to Sidebar's backup list; restore it there (Settings → Expert → Backups)     |
 
 Everything is optional: an app that isn't installed, or has no file in the

@@ -12,5 +12,12 @@
 # where  the domain, or the path (~ allowed)
 # app    the app in /Applications: installed?, and what is restarted
 
-alt-tab | defaults | com.lwouis.alt-tab-macos                         | AltTab
-sidebar | sidebar  | ~/Library/Application Support/at.sidebar.Sidebar | Sidebar
+alt-tab   | defaults | com.lwouis.alt-tab-macos                               | AltTab
+maccy     | defaults | org.p0deje.Maccy                                       | Maccy
+# Shottr keeps its license in its prefs (kc-license, token): export drops them
+shottr    | defaults | cc.ffitch.shottr                                       | Shottr
+# Rectangle renames or removes a RectangleConfig.json once loaded: its prefs instead
+rectangle | defaults | com.knollsoft.Rectangle                                | Rectangle
+# Tabby's config is encrypted with its vault passphrase (password manager)
+tabby     | file     | ~/Library/Application Support/tabby/config.yaml        | Tabby
+sidebar   | sidebar  | ~/Library/Application Support/at.sidebar.Sidebar       | Sidebar
