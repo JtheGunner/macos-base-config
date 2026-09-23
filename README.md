@@ -108,6 +108,7 @@ clones it itself, so `./bootstrap.sh dotfiles` works on its own.
 | `--list`          | list the steps                                                             |
 | `--list-packages` | list the package catalog: what is selected, what is installed             |
 | `--save-settings [app…]` | save the app settings into `SETTINGS_DIR`, see [App settings](#app-settings) |
+| `--init-config <git-url>` | clone your private config repo into the config dir, see [Private config repo](#private-config-repo) |
 | `-h`, `--help`    | usage                                                                      |
 
 ---
@@ -121,6 +122,32 @@ bash file that is **not** part of the repo. Start from the template:
 mkdir -p ~/.config/macos-base-config
 cp config.example.sh ~/.config/macos-base-config/config.sh
 ```
+
+### Private config repo
+
+Keep that folder as a **private** git repo, and a new Mac gets your config
+and app settings in one step:
+
+```text
+~/.config/macos-base-config/      ← your private repo, e.g. macos-private-config
+├─ config.sh                      PACKAGES, NAS_MOUNT_SHARES, …
+└─ settings/                      app settings (./bootstrap.sh --save-settings)
+```
+
+```sh
+./bootstrap.sh --init-config git@github.com:<you>/macos-private-config.git   # new Mac
+./bootstrap.sh                                                                # then everything
+```
+
+- `--init-config` clones only into a missing or empty folder. A folder with
+  other files, or a checkout of another repo, is left alone (exit 2).
+- The `repos` step pulls it on every run (`--no-pull` skips). A checkout
+  with local changes is not pulled, only warned about. A pulled `config.sh`
+  takes effect on the next run.
+- Cloning a private repo needs your GitHub access (SSH key or `gh auth login`)
+  set up first, like the sibling repos.
+- License keys and passwords never go into it:
+  `--save-settings` refuses to write them.
 
 | Key                         | Default             | Effect                                                                                                                 |
 |-----------------------------|---------------------|------------------------------------------------------------------------------------------------------------------------|
