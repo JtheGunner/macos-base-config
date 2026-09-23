@@ -424,6 +424,15 @@ out="$(HOME="$TMP/h" load_config "$f" 2>&1)"; rc=$?
 assert_eq "$rc" 2
 assert_contains "$out" "SETTINGS_DIR is not a directory: $TMP/h/nope"
 
+it "a relative SETTINGS_DIR or --config resolves to an absolute path"
+mkdir -p "$TMP/priv"
+f="$(write_config 'SETTINGS_DIR="priv"')"
+out="$(cd / && load_config "$f" && echo "$SETTINGS_DIR")"
+assert_eq "$out" "$TMP/priv"
+write_config 'BOOTSTRAP_STEPS=""' >/dev/null
+out="$(cd "$TMP" && load_config config.sh && echo "$SETTINGS_DIR")"
+assert_eq "$out" "$TMP"
+
 it "an unknown package in the config is exit 2"
 f="$(write_config 'PACKAGES="@base bogus"')"
 out="$(load_config "$f" 2>&1)"; rc=$?
@@ -784,6 +793,20 @@ assert_contains "$OUT" "AltTab: not installed"
 assert_contains "$OUT" "Sidebar: not installed"
 assert_eq "$(cat "$ALOG")" ""
 
+it "apps export writes private files: dir 700, files 600"
+app_sandbox
+write_alttab "$(alttab_domain)" appearanceTheme=2
+write_sidebar_backup "$(sidebar_support)/2.2.5_20260923-080000_AAAAAAAA.sidebarbackup"
+run_app_settings export
+assert_eq "$RC" 0
+assert_eq "$(stat -f %Lp "$AS")" 700
+assert_eq "$(stat -f %Lp "$AS/alttab.plist")" 600
+assert_eq "$(stat -f %Lp "$AS/sidebar.sidebarbackup")" 600
+chmod 644 "$AS/alttab.plist"
+write_alttab "$(alttab_domain)" appearanceTheme=3
+run_app_settings export
+assert_eq "$(stat -f %Lp "$AS/alttab.plist")" 600
+
 it "apps apply skips an installed app without a settings file"
 app_sandbox
 run_app_settings apply
@@ -956,6 +979,17 @@ run_bootstrap --no-pull apps
 assert_eq "$RC" 0
 assert_contains "$OUT" "  apps       skipped  (no settings dir: $SB/home/.config/macos-base-config)"
 assert_not_contains "$(cat "$LOG")" "app_settings.py"
+
+it "a relative --config reads the settings next to it, not apps/ of the repo"
+make_sandbox
+mkdir -p "$SB/home/cfg"
+echo 'BOOTSTRAP_STEPS=""' > "$SB/home/cfg/config.sh"
+old_pwd="$PWD"
+cd "$SB/home/cfg"
+run_bootstrap --no-pull --config config.sh apps
+cd "$old_pwd"
+assert_eq "$RC" 0
+assert_contains "$(cat "$LOG")" "python3 app_settings.py apply --dir $SB/home/cfg"
 
 it "the settings dir follows --config, spaces included"
 make_sandbox

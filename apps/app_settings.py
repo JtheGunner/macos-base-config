@@ -68,6 +68,15 @@ def default_settings_dir() -> Path:
     return Path(config_home) / "macos-base-config"
 
 
+def write_private(path: Path, data: bytes) -> None:
+    """write a settings file readable only by you, like config.sh (600) - it
+    shows your pinned apps, links and screen names"""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as out:
+        out.write(data)
+    os.chmod(path, 0o600)  # an existing file would keep its old mode
+
+
 def app_installed(name: str) -> bool:
     return (Path(os.environ.get("APPLICATIONS_DIR", "/Applications")) / f"{name}.app").is_dir()
 
@@ -90,7 +99,7 @@ def export_alttab(settings_dir: Path) -> None:
         print("  AltTab: no settings on this Mac - skipped")
         return
     target = settings_dir / ALTTAB_FILE_NAME
-    target.write_bytes(plistlib.dumps(alttab_settings(domain), fmt=plistlib.FMT_XML))
+    write_private(target, plistlib.dumps(alttab_settings(domain), fmt=plistlib.FMT_XML))
     print(f"  AltTab: {target}")
 
 
@@ -171,7 +180,7 @@ def export_sidebar(settings_dir: Path) -> None:
         "createdAt": datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None),
         "reason": "manual",
     }
-    target.write_bytes(plistlib.dumps(clean, fmt=plistlib.FMT_BINARY))
+    write_private(target, plistlib.dumps(clean, fmt=plistlib.FMT_BINARY))
     print(f"  Sidebar: {target} (from {source.name})")
 
 
@@ -217,7 +226,8 @@ def main(argv: list[str] | None = None) -> int:
     settings_dir = (args.dir or default_settings_dir()).expanduser()
     try:
         if args.command == "export":
-            settings_dir.mkdir(parents=True, exist_ok=True)
+            # a new settings dir is private (700); an existing one is left as it is
+            settings_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
             export_alttab(settings_dir)
             export_sidebar(settings_dir)
         else:

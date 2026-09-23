@@ -38,7 +38,7 @@ MACOS_DISABLE_GATEKEEPER=0
 
 # Private settings directory: alttab.plist and sidebar.sidebarbackup, written
 # by "python3 apps/app_settings.py export --dir <dir>". Empty = the directory
-# of this config file. Keep it out of the public repo, e.g. in iCloud Drive:
+# of this config file; a relative path is relative to it too. Keep it out of the public repo, e.g. in iCloud Drive:
 # "~/Library/Mobile Documents/com~apple~CloudDocs/macos-base-config".
 SETTINGS_DIR=""
 

@@ -84,13 +84,25 @@ validate_config() {
     echo "bootstrap.sh: $config_file: BREW_BUNDLE_EXTRA is not a readable file: $BREW_BUNDLE_EXTRA" >&2
     return 2
   fi
+  # SETTINGS_DIR is handed to a script that runs from apps/: make it absolute,
+  # a relative one relative to the config file
+  local config_dir
+  config_dir="$(dirname "$config_file")"
+  case "$config_dir" in
+    /*) ;;
+    *) config_dir="$(cd "$config_dir" 2>/dev/null && pwd)" || config_dir="$PWD/$config_dir" ;;
+  esac
   SETTINGS_DIR="$(expand_home "$SETTINGS_DIR")"
-  if [ -n "$SETTINGS_DIR" ] && [ ! -d "$SETTINGS_DIR" ]; then
+  case "$SETTINGS_DIR" in
+    # default: next to the config file - one --config path locates everything private
+    "") SETTINGS_DIR="$config_dir" ;;
+    /*) ;;
+    *) SETTINGS_DIR="$config_dir/$SETTINGS_DIR" ;;
+  esac
+  if [ "$SETTINGS_DIR" != "$config_dir" ] && [ ! -d "$SETTINGS_DIR" ]; then
     echo "bootstrap.sh: $config_file: SETTINGS_DIR is not a directory: $SETTINGS_DIR" >&2
     return 2
   fi
-  # default: next to the config file - one --config path locates everything private
-  [ -n "$SETTINGS_DIR" ] || SETTINGS_DIR="$(dirname "$config_file")"
   if [ -n "$DOTFILES_OMNISHELL_CONFIG" ] && { [ ! -f "$DOTFILES_OMNISHELL_CONFIG" ] || [ ! -r "$DOTFILES_OMNISHELL_CONFIG" ]; }; then
     echo "bootstrap.sh: $config_file: DOTFILES_OMNISHELL_CONFIG is not a readable file: $DOTFILES_OMNISHELL_CONFIG" >&2
     return 2
