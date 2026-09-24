@@ -174,10 +174,64 @@ brew_bundle() {
   run_cmd brew bundle --file="$1" --no-upgrade
 }
 
-# bundle_brewfile FILE -> show what FILE installs, then brew bundle it
+# prepare_taps BREWFILE -> tap the Brewfile's taps (with their URL, if any),
+# then trust its third-party formulae and casks one by one: Homebrew 7 skips
+# packages from taps nobody trusted. Tapping first lets a tap with its own
+# URL be trusted under the name Homebrew files it by. Failures only warn -
+# brew bundle still runs and names what it couldn't install.
+prepare_taps() {
+  local line tap url ref formulae="" casks="" trusted=true
+  while IFS= read -r line; do
+    case "$line" in
+      'tap "'*)
+        tap="${line#tap \"}"
+        tap="${tap%%\"*}"
+        url=""
+        case "$line" in *'", "'*) url="${line#*\", \"}" && url="${url%\"}" ;; esac
+        run_cmd brew tap "$tap" ${url:+"$url"} || echo "  warn: brew tap $tap failed" >&2 ;;
+      'brew "'*/*/*) ref="${line#brew \"}" && formulae="$formulae ${ref%%\"*}" ;;
+      'cask "'*/*/*) ref="${line#cask \"}" && casks="$casks ${ref%%\"*}" ;;
+    esac
+  done < "$1"
+  # shellcheck disable=SC2086 # one argument per package
+  if [ -n "$formulae" ]; then run_cmd brew trust --formula $formulae || trusted=false; fi
+  # shellcheck disable=SC2086
+  if [ -n "$casks" ]; then run_cmd brew trust --cask $casks || trusted=false; fi
+  $trusted || echo "  warn: brew trust failed - Homebrew may skip packages from third-party taps" >&2
+}
+
+# bundle_with_retry BREWFILE -> brew bundle it; a failure (often a download
+# reset on a busy network) is tried once more, then what is still missing is
+# named
+bundle_with_retry() {
+  brew_bundle "$1" && return 0
+  echo "  brew bundle failed - trying once more (downloads can fail on a busy network)"
+  brew_bundle "$1" && return 0
+  brew bundle check --file="$1" --no-upgrade --verbose 2>/dev/null |
+    sed -n 's/^→ \(.*\) needs to be .*/  still missing: \1/p'
+  return 1
+}
+
+# ensure_rosetta BREWFILE -> install Rosetta 2 when the Brewfile has a cask
+# that needs it and it is missing; a failure only warns
+ensure_rosetta() {
+  local cask needed=""
+  for cask in $ROSETTA_CASKS; do
+    grep -qx "cask \"$cask\"" "$1" && needed="$cask"
+  done
+  [ -n "$needed" ] || return 0
+  arch -x86_64 /usr/bin/true 2>/dev/null && return 0
+  run_cmd sudo softwareupdate --install-rosetta --agree-to-license ||
+    echo "  warn: Rosetta install failed - $needed needs it to start" >&2
+}
+
+# bundle_brewfile FILE -> show what FILE installs, prepare its taps, then
+# brew bundle it (with one retry)
 bundle_brewfile() {
   sed 's/^/    /' "$1"
-  brew_bundle "$1"
+  ensure_rosetta "$1"
+  prepare_taps "$1"
+  bundle_with_retry "$1"
 }
 
 step_brew() {
@@ -199,10 +253,10 @@ step_brew() {
   if [ -f "$dir/Brewfile" ] && ! bundle_brewfile "$dir/Brewfile"; then
     failed="brew bundle"
   fi
-  if [ -f "$dir/Brewfile.mas" ] && ! bundle_brewfile "$dir/Brewfile.mas"; then
+  if [ -f "$dir/Brewfile.mas" ] && ! { sed 's/^/    /' "$dir/Brewfile.mas" && brew_bundle "$dir/Brewfile.mas"; }; then
     failed="${failed:+$failed; }App Store: sign in, then re-run"
   fi
-  if [ -n "$BREW_BUNDLE_EXTRA" ] && ! brew_bundle "$BREW_BUNDLE_EXTRA"; then
+  if [ -n "$BREW_BUNDLE_EXTRA" ] && ! { prepare_taps "$BREW_BUNDLE_EXTRA" && bundle_with_retry "$BREW_BUNDLE_EXTRA"; }; then
     case "$failed" in *"brew bundle"*) ;; *) failed="${failed:+$failed; }brew bundle" ;; esac
   fi
   rm -rf "$dir"
@@ -403,10 +457,25 @@ step_keyboard() {
       run_cmd cp "$dir/CustomSwissGerman.keylayout" "$dir/CustomSwissGerman.icns" "$user_dir/" || return 1
   fi
 
-  if ! command -v "$SWIFT" >/dev/null 2>&1 ||
-    ! run_cmd "$SWIFT" "$HERE/enable-input-source.swift" "$layout" "$KEYBOARD_LAYOUT_NAME"; then
+  if ! command -v "$SWIFT" >/dev/null 2>&1 || ! enable_input_source "$layout"; then
     skip "$enable_hint"
   fi
+}
+
+# enable_input_source LAYOUT -> enable and select the layout with swift. Its
+# output is shown when it works; a failure (often Command Line Tools whose
+# SDK and compiler don't match) keeps the compiler errors in a log, one line.
+enable_input_source() {
+  local log="$HOME/Library/Logs/macos-base-config/keyboard-swift.log" out
+  echo "+ $SWIFT $HERE/enable-input-source.swift $1 $KEYBOARD_LAYOUT_NAME"
+  $DRY_RUN && return 0
+  if out="$("$SWIFT" "$HERE/enable-input-source.swift" "$1" "$KEYBOARD_LAYOUT_NAME" 2>&1)"; then
+    [ -z "$out" ] || echo "$out"
+    return 0
+  fi
+  mkdir -p "$(dirname "$log")" && printf '%s\n' "$out" > "$log"
+  echo "  swift failed - the Command Line Tools may be out of date (System Settings > General > Software Update); details: $log" >&2
+  return 1
 }
 
 # disable_gatekeeper -> allow apps from anywhere; macOS asks to confirm it in

@@ -12,6 +12,30 @@ APPLICATIONS_DIR="${APPLICATIONS_DIR:-/Applications}"
 
 catalog_file() { echo "${PACKAGE_CATALOG:-$HERE/packages/catalog.txt}"; }
 
+# casks that are built for Intel and need Rosetta 2 to start
+ROSETTA_CASKS="steam"
+
+# tap_urls -> "<user>/<tap>\t<url>" per line of taps.txt next to the catalog:
+# the taps whose repo is not github.com/<user>/homebrew-<tap>. No file, no
+# lines. Malformed line: "<file>:<line>: <problem>" on stderr, return 2.
+tap_urls() {
+  local file
+  file="$(dirname "$(catalog_file)")/taps.txt"
+  [ -r "$file" ] || return 0
+  awk -F'|' -v file="$file" '
+    function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+    /^[ \t]*(#|$)/ { next }
+    {
+      tap = trim($1); url = trim($2)
+      if (NF != 2 || tap !~ /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/ || url !~ /^https:\/\/[^ \t]+$/) {
+        printf "%s:%d: expected: <user>/<tap> | https://<url>\n", file, FNR > "/dev/stderr"; bad = 1; next
+      }
+      rows = rows tap "\t" url "\n"
+    }
+    END { if (bad) exit 2; printf "%s", rows }
+  ' "$file"
+}
+
 # catalog_rows -> the catalog as tab-separated rows (id, source, ref, check,
 # category, description): comments and blank lines dropped, cells trimmed.
 # Malformed catalog: "<file>:<line>: <problem>" on stderr per problem, return 2.
@@ -129,9 +153,10 @@ package_state() {
 # was installed (no second copy). A selected pipx / uv / go package whose command is missing pulls in its
 # tool (brew "pipx", "uv", "go") unless that formula is listed already.
 write_brewfiles() {
-  local dir="$1" rows id source ref check _category _description tap
+  local dir="$1" rows id source ref check _category _description tap url urls
   local taps="" entries="" store="" needs="" tool
   rows="$(catalog_rows)" || return 2
+  urls="$(tap_urls)" || return 2
   while IFS=$'\t' read -r id source ref check _category _description; do
     case " $2 " in *" $id "*) ;; *) continue ;; esac
     case "$source" in
@@ -160,7 +185,9 @@ write_brewfiles() {
       mas:*) ;;
       */*/*)
         tap="${ref%/*}"
-        case "$taps" in *"tap \"$tap\""*) ;; *) taps="${taps}tap \"$tap\""$'\n' ;; esac ;;
+        case "$taps" in *"tap \"$tap\""*) continue ;; esac
+        url="$(printf '%s\n' "$urls" | awk -F'\t' -v tap="$tap" '$1 == tap { print $2 }')"
+        taps="${taps}tap \"$tap\"${url:+, \"$url\"}"$'\n' ;;
     esac
   done <<< "$rows"
   for tool in $needs; do

@@ -360,10 +360,10 @@ source column in `packages/catalog.txt` says where each one comes from.
 | 💬 | `communication` | telegram, whatsapp |
 | 🛰️ | `remote`        | tailscale-app, teamviewer, windows-app, nas-mount |
 | 🎵 | `media`         | spotify, vlc, steam |
-| 🐚 | `cli-shell`     | coreutils, htop, tldr, screenfetch, iproute2mac |
+| 🐚 | `cli-shell`     | coreutils, htop, tlrc, screenfetch, iproute2mac |
 | 🛠️ | `cli-dev`       | gh, git-filter-repo, go, gopls, nvm, pipx, uv, python@3.12, python@3.14, php@8.3, php@8.4, composer, qodana, sass |
 | 🗄️ | `cli-ops`       | mariadb, mysql-client, helm, sshpass |
-| 🧠 | `cli-ai`        | summarize, openai-whisper, hf, mlx-lm, gemini-cli, litellm, mlx-vlm, mlx-dspark-cli *(pipx)*, nano-pdf *(uv)*, continue-cli, openclaw, clawhub *(npm)* |
+| 🧠 | `cli-ai`        | summarize, openai-whisper, hf, mlx-lm, antigravity-cli, litellm, mlx-vlm, mlx-dspark-cli *(pipx)*, nano-pdf *(uv)*, continue-cli, openclaw, clawhub *(npm)* |
 | 📄 | `cli-docs`      | ghostscript, poppler, tesseract, tesseract-lang |
 | 🍎 | `cli-macos`     | codexbar, remindctl, memo, spogo, dutix |
 
@@ -378,6 +378,14 @@ installs them.
 - App Store packages need you signed in to the App Store. Paid apps must
   already belong to your Apple ID.
 - Apps outside the catalog go in your own Brewfile: set `BREW_BUNDLE_EXTRA`.
+- Packages from third-party taps (`<user>/<tap>/<name>`) are trusted one by
+  one with `brew trust` before the bundle: Homebrew 7 skips packages from
+  taps nobody trusted. A tap whose repo isn't `github.com/<user>/homebrew-<tap>`
+  needs its URL in [`packages/taps.txt`](packages/taps.txt).
+- A failed `brew bundle` (often a download reset on a busy network) is tried
+  once more; after that, the step names what is still missing.
+- Steam is built for Intel: when it is selected and Rosetta 2 is missing, the
+  `brew` step installs Rosetta first.
 - `pipx`, `uv` and `go` are installed by the `brew` step when a selected
   package needs them. `npm` packages need Node: `nvm install --lts` first.
 - A package whose command is already on your `PATH` is left alone, however it
@@ -471,7 +479,8 @@ The `brew` step installs JetBrains Mono (package `font-jetbrains-mono`, in
 [`editor-settings/vscode.jsonc`](editor-settings/vscode.jsonc) (font family,
 size, weight) in the `User/settings.json` of every VS Code-family editor it
 finds: VS Code, VS Code Insiders, VSCodium, Cursor, Windsurf, Antigravity,
-Antigravity IDE.
+Antigravity IDE. An editor that is installed but was never started gets a new
+`settings.json`.
 
 ```sh
 ./bootstrap.sh editor --dry-run   # diff per settings.json

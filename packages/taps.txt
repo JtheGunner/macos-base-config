@@ -1,0 +1,5 @@
+# Taps whose repo isn't github.com/<user>/homebrew-<tap>, so Homebrew can't
+# find them by name. The brew step taps them with this URL.
+#
+# tap                | url
+arahim3/mlx-dspark   | https://github.com/ARahim3/mlx-dspark

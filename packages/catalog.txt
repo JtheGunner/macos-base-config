@@ -64,7 +64,7 @@ steam                     | cask    | steam                          | Steam    
 
 coreutils                 | formula | coreutils                      | -                   | cli-shell     | GNU core utilities (g-prefixed: gls, gdate, ...)
 htop                      | formula | htop                           | -                   | cli-shell     | htop interactive process viewer
-tldr                      | formula | tldr                           | -                   | cli-shell     | tldr: short, example-based man pages
+tlrc                      | formula | tlrc                           | tldr                | cli-shell     | tlrc: tldr pages, short example-based man pages
 screenfetch               | formula | screenfetch                    | -                   | cli-shell     | screenfetch: system info with ASCII art
 iproute2mac               | formula | iproute2mac                    | -                   | cli-shell     | ip command like on Linux
 
@@ -92,7 +92,7 @@ summarize                 | formula | summarize                      | -        
 openai-whisper            | formula | openai-whisper                 | -                   | cli-ai        | OpenAI Whisper speech recognition
 hf                        | formula | hf                             | hf                  | cli-ai        | hf: Hugging Face hub CLI
 mlx-lm                    | formula | mlx-lm                         | mlx_lm.generate     | cli-ai        | mlx-lm: run LLMs with Apple MLX
-gemini-cli                | formula | gemini-cli                     | gemini              | cli-ai        | Gemini CLI
+antigravity-cli           | cask    | antigravity-cli                | bin:agy             | cli-ai        | Antigravity CLI (agy), successor of the Gemini CLI
 litellm                   | pipx    | litellm                        | litellm             | cli-ai        | LiteLLM: one API and proxy for many LLM providers
 mlx-vlm                   | pipx    | mlx-vlm                        | mlx_vlm.generate    | cli-ai        | mlx-vlm: vision language models with Apple MLX
 mlx-dspark-cli            | pipx    | mlx-dspark                     | mlx-dspark          | cli-ai        | mlx-dspark command line
