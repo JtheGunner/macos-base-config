@@ -20,6 +20,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # sibling repos live next to this one, wherever it was cloned
 PARENT_DIR="$(cd "$HERE/.." && pwd)"
 
+. "$HERE/lib/ui.sh"
 . "$HERE/lib/cli.sh"
 . "$HERE/lib/packages.sh"
 . "$HERE/lib/config.sh"
@@ -58,25 +59,30 @@ fi
 SUMMARY=""
 ANY_FAILED=false
 
-# record STEP STATUS [REASON] -> one summary line
+# record STEP STATUS [REASON] -> one summary line, the status in its colour
 record() {
-  local line
+  local line color
+  color="$(status_color "$2")"
   if [ -n "${3:-}" ]; then
-    line="$(printf '  %-10s %-8s (%s)' "$1" "$2" "$3")"
+    line="$(printf '  %-10s %s%-8s%s (%s)' "$1" "$color" "$2" "$C_RESET" "$3")"
   else
-    line="$(printf '  %-10s %s' "$1" "$2")"
+    line="$(printf '  %-10s %s%s%s' "$1" "$color" "$2" "$C_RESET")"
   fi
   SUMMARY="$SUMMARY$line"$'\n'
 }
 
+# ask for the sudo password once, before the first installer needs it
+if may_wait && steps_need_sudo "$SELECTED"; then
+  prime_sudo
+fi
+
 for step in $SELECTED; do
-  echo
-  echo "== $step: $(step_description "$step")"
+  ui_header "$step:" "$(step_description "$step")"
   STEP_SKIP_REASON=""
   STEP_FAIL_REASON=""
   if "step_$step"; then
     if [ -n "$STEP_SKIP_REASON" ]; then
-      echo "  -> skipped: $STEP_SKIP_REASON"
+      printf '%s  -> skipped: %s%s\n' "$C_YELLOW" "$STEP_SKIP_REASON" "$C_RESET"
       record "$step" skipped "$STEP_SKIP_REASON"
     else
       record "$step" ok
@@ -88,8 +94,7 @@ for step in $SELECTED; do
   fi
 done
 
-echo
-echo "== summary"
+ui_header summary
 printf '%s' "$SUMMARY"
 $DRY_RUN && echo $'\n(dry run)'
 $ANY_FAILED && exit 1

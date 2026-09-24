@@ -214,8 +214,8 @@ print_package_list() {
   done <<< "$rows"
 }
 
-# manual_package_hints "<selected ids>" -> one line per selected "manual"
-# package whose app is missing: where to get it
+# manual_package_hints "<selected ids>" -> "Install <app> by hand
+# (<description>)<TAB><url>" per selected "manual" package that is missing
 manual_package_hints() {
   local rows id source ref check _category description
   rows="$(catalog_rows)" || return 2
@@ -223,7 +223,7 @@ manual_package_hints() {
     [ "$source" = manual ] || continue
     case " $1 " in *" $id "*) ;; *) continue ;; esac
     [ "$(package_state manual "$check")" = installed ] && continue
-    echo "  - Install $check by hand ($description): $ref"
+    printf 'Install %s by hand (%s)\t%s\n' "$check" "$description" "$ref"
   done <<< "$rows"
 }
 
