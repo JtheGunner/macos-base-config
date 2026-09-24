@@ -126,11 +126,19 @@ prime_sudo() {
     printf '%sYour password is needed once, for the installers and system settings:%s\n' "$C_BOLD" "$C_RESET"
     sudo -v || { warn "no sudo - installers will ask for the password themselves"; return 0; }
   fi
-  # fds closed: the loop must not keep a caller's pipe open
-  ( while sleep 50 && kill -0 "$$" 2>/dev/null; do sudo -n true; done ) </dev/null >/dev/null 2>&1 &
+  # sudo -v renews the timestamp; stdin stays the terminal (sudo keys its
+  # timestamp by it), output is closed so no caller's pipe is held open
+  ( while sleep 50 && kill -0 "$$" 2>/dev/null; do sudo -n -v; done ) >/dev/null 2>&1 &
   SUDO_KEEPALIVE_PID=$!
-  trap 'kill "$SUDO_KEEPALIVE_PID" 2>/dev/null' EXIT
+  # its pending sleep too, or that outlives bootstrap.sh by up to 50 s
+  trap 'pkill -P "$SUDO_KEEPALIVE_PID" 2>/dev/null; kill "$SUDO_KEEPALIVE_PID" 2>/dev/null' EXIT
   SUDO_KEPT_ALIVE=true
+}
+
+# refresh_sudo -> renew a primed sudo timestamp right before an installer
+# needs it (a long download can outlast sudo's timeout between keep-alives)
+refresh_sudo() {
+  if $SUDO_KEPT_ALIVE; then sudo -n -v 2>/dev/null || true; fi
 }
 
 # install_homebrew -> run the official installer; with sudo primed it runs
@@ -253,8 +261,31 @@ ensure_rosetta() {
   done
   [ -n "$needed" ] || return 0
   arch -x86_64 /usr/bin/true 2>/dev/null && return 0
+  refresh_sudo
   run_cmd sudo softwareupdate --install-rosetta --agree-to-license ||
     warn "Rosetta install failed - $needed needs it to start"
+}
+
+# install_app_store_apps BREWFILE -> the App Store apps. Interactive runs ask
+# first: without an App Store sign-in, mas only opens sign-in dialogs. A
+# failure is a warning, not a failed step - the manual step links the apps.
+install_app_store_apps() {
+  local apps answer
+  apps="$(sed -n 's/^mas "\(.*\)", id: .*/\1/p' "$1" | tr '\n' ',' | sed 's/,$//; s/,/, /g')"
+  if may_wait; then
+    printf '  %sApp Store: %s - are you signed in to the App Store?%s %sEnter%s: install   %ss%s: skip > ' \
+      "$C_BOLD" "$apps" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
+    if ! read -r answer || [ "$answer" = s ]; then
+      echo
+      note "App Store skipped - the manual step links the apps"
+      return 0
+    fi
+  fi
+  sed 's/^/    /' "$1"
+  refresh_sudo
+  brew_bundle "$1" ||
+    warn "App Store install failed - sign in to the App Store; the manual step links the apps"
+  return 0
 }
 
 # bundle_brewfile FILE -> show what FILE installs, prepare its taps, then
@@ -263,6 +294,7 @@ bundle_brewfile() {
   sed 's/^/    /' "$1"
   ensure_rosetta "$1"
   prepare_taps "$1"
+  refresh_sudo
   bundle_with_retry "$1"
 }
 
@@ -286,9 +318,7 @@ step_brew() {
     note "installers may open windows or ask for permissions - close them; the manual step at the end walks you through what matters"
     bundle_brewfile "$dir/Brewfile" || failed="brew bundle"
   fi
-  if [ -f "$dir/Brewfile.mas" ] && ! { sed 's/^/    /' "$dir/Brewfile.mas" && brew_bundle "$dir/Brewfile.mas"; }; then
-    failed="${failed:+$failed; }App Store: sign in, then re-run"
-  fi
+  [ -f "$dir/Brewfile.mas" ] && install_app_store_apps "$dir/Brewfile.mas"
   if [ -n "$BREW_BUNDLE_EXTRA" ] && ! { prepare_taps "$BREW_BUNDLE_EXTRA" && bundle_with_retry "$BREW_BUNDLE_EXTRA"; }; then
     case "$failed" in *"brew bundle"*) ;; *) failed="${failed:+$failed; }brew bundle" ;; esac
   fi
@@ -695,12 +725,48 @@ open_target() {
   esac
 }
 
-# guide_manual -> the manual steps one at a time: Enter opens the step's app
-# or pane, Enter again when done, s skips. End of input stops the guide.
+manual_state_file() { echo "${XDG_STATE_HOME:-$HOME/.local/state}/macos-base-config/manual-done"; }
+
+# manual_key I -> what identifies item I in the state file: its title and
+# text, so a changed step (another license to enter) is asked again
+manual_key() { echo "${MANUAL_TITLES[$1]}: ${MANUAL_TEXTS[$1]}"; }
+
+# manual_detected TITLE -> 0 when this Mac shows the step is done already
+manual_detected() {
+  case "$1" in
+    "Karabiner permissions")
+      systemextensionsctl list 2>/dev/null |
+        grep -q 'org.pqrs.Karabiner-DriverKit-VirtualHIDDevice.*\[activated enabled\]' ;;
+    "Input source")
+      defaults read com.apple.HIToolbox AppleEnabledInputSources 2>/dev/null |
+        grep -qF "\"KeyboardLayout Name\" = \"$KEYBOARD_LAYOUT_NAME\"" ;;
+    Gatekeeper) spctl --status 2>/dev/null | grep -q 'assessments disabled' ;;
+    *) return 1 ;;
+  esac
+}
+
+# manual_is_done I -> 0 when item I was confirmed on an earlier run or is
+# detected as done
+manual_is_done() {
+  grep -qxF "$(manual_key "$1")" "$(manual_state_file)" 2>/dev/null && return 0
+  manual_detected "${MANUAL_TITLES[$1]}"
+}
+
+# remember_manual I -> record item I as done
+remember_manual() {
+  local file
+  file="$(manual_state_file)"
+  mkdir -p "$(dirname "$file")" && manual_key "$1" >> "$file"
+}
+
+# guide_manual I... -> the open manual steps one at a time: Enter opens the
+# step's app or pane, Enter again when done (remembered), s skips. End of
+# input stops the guide.
 guide_manual() {
-  local i n=${#MANUAL_TITLES[@]} answer
-  for ((i = 0; i < n; i++)); do
-    printf '\n  %s[%d/%d] %s%s\n' "$C_BOLD$C_MAGENTA" $((i + 1)) "$n" "${MANUAL_TITLES[$i]}" "$C_RESET"
+  local i n=$# k=0 answer
+  for i in "$@"; do
+    k=$((k + 1))
+    printf '\n  %s[%d/%d] %s%s\n' "$C_BOLD$C_MAGENTA" "$k" "$n" "${MANUAL_TITLES[$i]}" "$C_RESET"
     printf '        %s\n' "${MANUAL_TEXTS[$i]}"
     if [ -n "${MANUAL_TARGETS[$i]}" ]; then
       printf '        %sEnter%s: open it   %ss%s: skip > ' "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
@@ -710,11 +776,13 @@ guide_manual() {
     fi
     printf '        %sEnter%s when done > ' "$C_BOLD" "$C_RESET"
     read -r answer || { echo; return 0; }
+    [ "$answer" = s ] || remember_manual "$i"
   done
 }
 
 step_manual() {
-  local licensed="" app count=0 last="" karabiner="" title url i
+  local licensed="" app count=0 last="" karabiner="" title text url i
+  local done_titles="" done_count=0 open_items=""
   MANUAL_TITLES=() MANUAL_TEXTS=() MANUAL_TARGETS=()
   [ -d "$KARABINER_APP" ] && karabiner="app:Karabiner-Elements"
   manual_item "Karabiner permissions" "allow the driver extension, Input Monitoring and Accessibility when Karabiner-Elements asks (karabiner-windows-keyboard-mapping-macos/setup.sh lists them)" "$karabiner"
@@ -741,15 +809,32 @@ step_manual() {
   if [ -d "$APPLICATIONS_DIR/Tabby.app" ] && [ -f "$SETTINGS_DIR/tabby.yaml" ]; then
     manual_item "Tabby" "unlock its vault with the passphrase from your password manager" app:Tabby
   fi
-  while IFS=$'\t' read -r title url; do
-    [ -n "$title" ] && manual_item "$title" "$url" "$url"
+  while IFS=$'\t' read -r title text url; do
+    [ -n "$title" ] && manual_item "$title" "$text" "$url"
   done <<< "$(manual_package_hints "$SELECTED_PACKAGES")"
 
-  if may_wait; then
-    guide_manual
+  for ((i = 0; i < ${#MANUAL_TITLES[@]}; i++)); do
+    if manual_is_done "$i"; then
+      done_titles="${done_titles:+$done_titles, }${MANUAL_TITLES[$i]}"
+      done_count=$((done_count + 1))
+    else
+      open_items="$open_items $i"
+    fi
+  done
+  if [ "$done_count" -gt 0 ]; then
+    printf '  %s✓ %d done earlier: %s%s\n' "$C_GREEN" "$done_count" "$done_titles" "$C_RESET"
+  fi
+  if [ -z "$open_items" ]; then
+    printf '  %s✓ nothing left to do by hand%s (to go through all again: rm %s)\n' \
+      "$C_GREEN" "$C_RESET" "$(manual_state_file)"
     return 0
   fi
-  for ((i = 0; i < ${#MANUAL_TITLES[@]}; i++)); do
+  if may_wait; then
+    # shellcheck disable=SC2086 # the open item numbers
+    guide_manual $open_items
+    return 0
+  fi
+  for i in $open_items; do
     printf '  - %s%s%s: %s\n' "$C_BOLD$C_MAGENTA" "${MANUAL_TITLES[$i]}" "$C_RESET" "${MANUAL_TEXTS[$i]}"
   done
 }

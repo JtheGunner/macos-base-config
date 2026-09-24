@@ -259,6 +259,15 @@ you through them one at a time: **Enter** opens the app or System Settings
 pane, **Enter** again when done, **s** skips. With `--yes`, in a dry run or
 with piped output it prints them as a list.
 
+It remembers what is done, so a re-run only shows what is left:
+
+- a step you confirmed with **Enter** is kept in
+  `~/.local/state/macos-base-config/manual-done` (delete the file to go
+  through all of them again). A step whose text changes - say, a new app
+  whose license you still have to enter - comes back.
+- Gatekeeper, the input source and the Karabiner driver are checked on this
+  Mac directly.
+
 |    | Step                      | How                                                                                                                                         |
 |:--:|---------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
 | 🔐 | **Karabiner permissions** | Driver Extension, Input Monitoring, Accessibility. `karabiner-windows-keyboard-mapping-macos/setup.sh` opens the panes and lists the steps |
@@ -389,7 +398,10 @@ installs them.
 - An app already in `/Applications` is left alone, even when Homebrew didn't
   install it.
 - App Store packages need you signed in to the App Store. Paid apps must
-  already belong to your Apple ID.
+  already belong to your Apple ID. In a terminal, the `brew` step asks first
+  (**Enter** installs, **s** skips); an App Store app that didn't install is
+  a warning, not a failed step, and the `manual` step links it in the App
+  Store. (Virtual machines often can't sign in to the App Store at all.)
 - Apps outside the catalog go in your own Brewfile: set `BREW_BUNDLE_EXTRA`.
 - Packages from third-party taps (`<user>/<tap>/<name>`) are trusted one by
   one with `brew trust` before the bundle: Homebrew 7 skips packages from
@@ -445,7 +457,7 @@ password manager once per Mac.
 | 📋 | Maccy   | `maccy.plist`: its preferences, minus menu-bar, window and update state                                | merged into its preferences; a running Maccy restarts                             |
 | 📸 | Shottr  | `shottr.plist`: its preferences, **without its license** (`kc-license`, `kc-vault`, `token`), device ids, update checks and telemetry | merged into its preferences; a running Shottr restarts                            |
 | 🪟 | Rectangle | `rectangle.plist`: its preferences and shortcuts, minus dialog and update state                      | merged into its preferences; a running Rectangle restarts                         |
-| 🖥️ | Tabby   | `tabby.yaml`: its `config.yaml` as is, **encrypted with your Tabby vault**                             | copied in (the old one kept as `.bak-<time>`); Tabby asks for the vault passphrase from your password manager |
+| 🖥️ | Tabby   | `tabby.yaml`: its `config.yaml` as is, **encrypted with your Tabby vault**                             | copied in (the old one kept as `.bak-<time>`), again only when the saved file changed - Tabby rewrites its own on start; Tabby asks for the vault passphrase from your password manager |
 | 📌 | Sidebar | `sidebar.sidebarbackup`: a Sidebar backup without license, usage data, statistics, calendars or window state | added to Sidebar's backup list; restore it there (Settings → Expert → Backups)     |
 
 Everything is optional: an app that isn't installed, or has no file in the

@@ -393,7 +393,7 @@ assert_eq "$(cat "$d/Brewfile")" 'brew "uv"'
 it "manual hints: selected and missing only"
 mkdir -p "$TMP/apps3"
 out="$(APPLICATIONS_DIR="$TMP/apps3" PACKAGE_CATALOG="$f" manual_package_hints "filezilla hf")"
-assert_eq "$out" "Install FileZilla by hand (FTP client)	https://filezilla-project.org/download.php?type=client"
+assert_eq "$out" "Install FileZilla by hand	FTP client: https://filezilla-project.org/download.php?type=client	https://filezilla-project.org/download.php?type=client"
 assert_eq "$(APPLICATIONS_DIR="$TMP/apps3" PACKAGE_CATALOG="$f" manual_package_hints "hf")" ""
 mkdir -p "$TMP/apps3/FileZilla.app"
 assert_eq "$(APPLICATIONS_DIR="$TMP/apps3" PACKAGE_CATALOG="$f" manual_package_hints "filezilla")" ""
@@ -802,7 +802,7 @@ EOF
   chmod +x "$AB"/*
 }
 run_app_settings() {
-  OUT="$(HOME="$AH" PATH="$AB:$PATH" APPLICATIONS_DIR="$AAPPS" APP_QUIT_TIMEOUT=0.5 python3 "$AD/app_settings.py" "$@" --dir "$AS" 2>&1)"
+  OUT="$(env -u XDG_STATE_HOME HOME="$AH" PATH="$AB:$PATH" APPLICATIONS_DIR="$AAPPS" APP_QUIT_TIMEOUT=0.5 python3 "$AD/app_settings.py" "$@" --dir "$AS" 2>&1)"
   RC=$?
 }
 # py EXPR... -> run python3 with plistlib, json, sys imported
@@ -870,7 +870,7 @@ assert_contains "$OUT" "registry.txt:1: where must be an absolute or ~/ path"
 
 it "apps export keeps AltTab settings, drops runtime and license keys"
 app_sandbox
-write_alttab "$(alttab_domain)" appearanceTheme=2 hideStatusIcons=true \
+write_alttab "$(alttab_domain)" appearanceTheme=2 hideStatusIcons=true preferencesVersion=11.4.3 \
   "NSWindow Frame SettingsWindow=1 2 3 4" SULastCheckTime=x MSAppCenterInstallId=y \
   "NSStatusItem VisibleCC Item-0=false" proLicenseKey=nope
 write_sidebar_backup "$(sidebar_support)/2.2.5_20260923-080000_AAAAAAAA.sidebarbackup"
@@ -933,6 +933,14 @@ assert_eq "$RC" 0
 assert_contains "$OUT" "AltTab: already set"
 assert_not_contains "$(cat "$ALOG")" "osascript"
 assert_not_contains "$(cat "$ALOG")" "import"
+
+it "apps apply ignores AltTab's version stamp from an older export"
+app_sandbox
+write_alttab "$AS/alt-tab.plist" appearanceTheme=2 preferencesVersion=11.4.3
+write_alttab "$(alttab_domain)" appearanceTheme=2 preferencesVersion=11.7.1
+run_app_settings apply
+assert_contains "$OUT" "AltTab: already set"
+assert_eq "$(py 'print(plistlib.load(open(sys.argv[1], "rb"))["preferencesVersion"])' "$(alttab_domain)")" "11.7.1"
 
 it "apps apply dry run only lists the AltTab keys it would change"
 app_sandbox
@@ -1103,6 +1111,17 @@ run_app_settings apply
 assert_contains "$OUT" "Tabby: already set"
 assert_eq "$(cat "$ALOG")" ""
 
+it "file apply leaves a file the app rewrote alone until the saved one changes"
+echo "rewritten by Tabby" > "$AH/Library/Application Support/tabby/config.yaml"
+run_app_settings apply
+assert_contains "$OUT" "Tabby: already set"
+assert_eq "$(cat "$AH/Library/Application Support/tabby/config.yaml")" "rewritten by Tabby"
+assert_eq "$(cat "$ALOG")" ""
+echo newer > "$AS/tabby.yaml"
+run_app_settings apply
+assert_contains "$OUT" "Tabby: set"
+assert_eq "$(cat "$AH/Library/Application Support/tabby/config.yaml")" newer
+
 it "file apply creates the target folder; dry run changes nothing"
 app_sandbox
 write_registry 'tabby | file | ~/Library/Application Support/tabby/config.yaml | Tabby'
@@ -1224,6 +1243,9 @@ make_sandbox() {
   mkdir -p "$APP/editor-settings" "$APP/apps"
   local tool
   for tool in git brew python3 omnishell curl open swift sudo; do stub "$SB/bin/$tool" "$tool"; done
+  # the manual step's checks must not see this Mac's settings
+  for tool in defaults systemextensionsctl; do printf '#!/bin/bash\nexit 1\n' > "$SB/bin/$tool"; done
+  chmod +x "$SB/bin/defaults" "$SB/bin/systemextensionsctl"
   spctl_stub "assessments enabled"
   stub_sibling swiss-windows-keyboard-layout-macos
   echo layout > "$SB/parent/swiss-windows-keyboard-layout-macos/CustomSwissGerman.keylayout"
@@ -1244,7 +1266,7 @@ sandbox_config() {
 
 # run_bootstrap ARG... -> OUT (stdout + stderr), RC. stdin is /dev/null.
 run_bootstrap() {
-  OUT="$(env -u XDG_CONFIG_HOME -u DOTFILES_TERMINALS -u PACKAGES -u GOBIN HOME="$SB/home" \
+  OUT="$(env -u XDG_CONFIG_HOME -u XDG_STATE_HOME -u DOTFILES_TERMINALS -u PACKAGES -u GOBIN HOME="$SB/home" \
     PATH="$SB/bin:/usr/bin:/bin" KARABINER_APP="$SB/Karabiner-Elements.app" \
     BREW_CANDIDATES="$SB/homebrew/bin/brew" KARABINER_WAIT_SECONDS=0 \
     KEYBOARD_SYSTEM_DIR="$SB/system-layouts" SWIFT="${SWIFT_BIN:-$SB/bin/swift}" \
@@ -1308,7 +1330,7 @@ SB_CATALOG="$SB/catalog.txt"
 echo 'filezilla | manual | https://filezilla-project.org/download.php?type=client | FileZilla | dev | FTP client' > "$SB_CATALOG"
 sandbox_config 'PACKAGES="filezilla"'
 run_bootstrap manual
-assert_contains "$OUT" "Install FileZilla by hand (FTP client): https://filezilla-project.org/download.php?type=client"
+assert_contains "$OUT" "Install FileZilla by hand: FTP client: https://filezilla-project.org/download.php?type=client"
 mkdir -p "$SB/Applications/FileZilla.app"
 run_bootstrap manual
 SB_CATALOG=""
@@ -1345,6 +1367,14 @@ assert_eq "$RC" 0
 assert_eq "$(head -2 "$LOG")" "sudo -n true
 sudo -v"
 assert_contains "$OUT" "Your password is needed once"
+
+it "a primed sudo is refreshed before the installers, not otherwise"
+make_sandbox
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --no-pull brew
+assert_contains "$(cat "$LOG")" "sudo -n -v"
+: > "$LOG"
+run_bootstrap --no-pull brew
+assert_not_contains "$(cat "$LOG")" "sudo"
 
 it "no password up front in a dry run, without a terminal, or when no step needs sudo"
 make_sandbox
@@ -1388,9 +1418,35 @@ assert_contains "$OUT" "[1/4] Karabiner permissions"
 assert_contains "$OUT" "[2/4] Input source"
 assert_contains "$OUT" "[3/4] Gatekeeper"
 assert_contains "$OUT" "[4/4] Licenses"
-assert_eq "$(cat "$LOG")" "open -a Karabiner-Elements
+assert_eq "$(grep '^open ' "$LOG")" "open -a Karabiner-Elements
 open x-apple.systempreferences:com.apple.preference.security?General"
 assert_not_contains "$OUT" "  - Karabiner permissions"
+
+it "confirmed manual steps are remembered; skipped ones are asked again"
+make_sandbox
+mkdir -p "$SB/Applications/AltTab.app"
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT=$'\n\ns\n\n' run_bootstrap manual
+assert_contains "$OUT" "[3/3] Licenses"
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT=$'\n\n' run_bootstrap manual
+assert_contains "$OUT" "✓ 2 done earlier: Karabiner permissions, Licenses"
+assert_contains "$OUT" "[1/1] Input source"
+assert_contains "$(cat "$SB/home/.local/state/macos-base-config/manual-done")" "Karabiner permissions:"
+run_bootstrap manual
+assert_contains "$OUT" "✓ 3 done earlier"
+assert_contains "$OUT" "nothing left to do by hand"
+mkdir -p "$SB/Applications/Shottr.app"
+run_bootstrap manual
+assert_contains "$OUT" "  - Licenses: enter the AltTab (Pro) and Shottr keys"
+
+it "the manual step sees what is already done: Gatekeeper off, input source on, Karabiner driver active"
+make_sandbox
+sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
+spctl_stub "assessments disabled"
+printf '#!/bin/bash\ncat <<"X"\n  "KeyboardLayout Name" = "Custom Swiss German";\nX\n' > "$SB/bin/defaults"
+printf '#!/bin/bash\necho "*	*	G43BCU2T37	org.pqrs.Karabiner-DriverKit-VirtualHIDDevice (1.8.0/1.8.0)	[activated enabled]"\n' > "$SB/bin/systemextensionsctl"
+run_bootstrap manual
+assert_contains "$OUT" "✓ 3 done earlier: Karabiner permissions, Input source, Gatekeeper"
+assert_contains "$OUT" "nothing left to do by hand"
 
 it "the guide stops at the end of input instead of waiting"
 make_sandbox
@@ -2001,16 +2057,47 @@ printf '%s\n' 'firefox | cask | firefox | Firefox | web | Web browser' \
   'whatsapp | mas | 310633997 | WhatsApp | chat | Messenger' > "$SB_CATALOG"
 sandbox_config 'PACKAGES="@all"'
 brew_stub 0 Brewfile.mas
-run_bootstrap --no-pull brew macos
-SB_CATALOG=""
-assert_eq "$RC" 1
+run_bootstrap --no-pull brew macos manual
+assert_eq "$RC" 0
 assert_eq "$(brew_log | grep -v '^python3 ')" "brew bundle --file=<tmp>/Brewfile --no-upgrade
   | cask \"firefox\"
 brew bundle --file=<tmp>/Brewfile.mas --no-upgrade
   | brew \"mas\"
   | mas \"WhatsApp\", id: 310633997"
-assert_contains "$OUT" "  brew       failed   (App Store: sign in, then re-run)"
-assert_contains "$OUT" "  macos      ok"
+assert_contains "$OUT" "warn: App Store install failed - sign in to the App Store; the manual step links the apps"
+assert_contains "$OUT" "  brew       ok"
+assert_contains "$OUT" "  - Install WhatsApp from the App Store: sign in to the App Store first"
+mkdir -p "$SB/Applications/WhatsApp.app"
+run_bootstrap --no-pull manual
+SB_CATALOG=""
+assert_not_contains "$OUT" "WhatsApp"
+
+it "an interactive run asks before the App Store: s skips it, Enter installs"
+make_sandbox
+SB_CATALOG="$SB/catalog.txt"
+printf '%s\n' 'whatsapp | mas | 310633997 | WhatsApp | chat | Messenger' > "$SB_CATALOG"
+sandbox_config 'PACKAGES="@all"'
+brew_stub
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT=$'s\n' run_bootstrap --no-pull brew
+assert_eq "$RC" 0
+assert_contains "$OUT" "App Store: WhatsApp - are you signed in to the App Store?"
+assert_contains "$OUT" "App Store skipped - the manual step links the apps"
+assert_not_contains "$(cat "$LOG")" "Brewfile.mas"
+: > "$LOG"
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT=$'\n' run_bootstrap --no-pull brew
+SB_CATALOG=""
+assert_contains "$(cat "$LOG")" "Brewfile.mas"
+assert_contains "$(cat "$LOG")" "sudo -n -v"
+
+it "the manual step links a selected App Store app that is missing"
+make_sandbox
+SB_CATALOG="$SB/catalog.txt"
+printf '%s\n' 'whatsapp | mas | 310633997 | WhatsApp | chat | Messenger' > "$SB_CATALOG"
+sandbox_config 'PACKAGES="@all"'
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT=$'\n\n\n\n\n\n' run_bootstrap manual
+SB_CATALOG=""
+assert_contains "$OUT" "Install WhatsApp from the App Store"
+assert_contains "$(cat "$LOG")" "open macappstore://apps.apple.com/app/id310633997"
 
 it "brew installs Homebrew when missing, then bundles"
 make_sandbox

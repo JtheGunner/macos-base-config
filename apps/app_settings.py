@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import plistlib
@@ -218,9 +219,12 @@ RUNTIME_PREFIXES = ("NSWindow", "NSStatusItem", "NSNavPanel", "NSOSPLast", "NSSp
                     "GATelemetry", "LaunchAtLogin__")
 SECRET_WORDS = ("licen", "token", "serial", "password", "secret")
 # keys per domain the secret words and runtime prefixes don't catch: license
-# data, ids and bookmarks that only hold for this Mac, and counters or update
-# checks that change on their own (they would restart the app on every apply)
+# data, ids and bookmarks that only hold for this Mac, and counters, version
+# stamps or update checks that change on their own (they would restart the
+# app on every apply). Neither exported nor applied.
 UNPORTABLE_KEYS = {
+    # AltTab stamps its own version and migrates older settings on start
+    "com.lwouis.alt-tab-macos": frozenset({"preferencesVersion"}),
     "cc.ffitch.shottr": frozenset({
         "kc-vault", "uid", "defaultFolderBookmark",
         "localEventCounter", "activeAppVersion", "latestBuild", "latestVersionCode",
@@ -302,7 +306,9 @@ def export_defaults(entry: Entry, settings_dir: Path) -> None:
 
 
 def apply_defaults(entry: Entry, source: Path, dry_run: bool) -> None:
-    wanted = plistlib.loads(source.read_bytes())
+    unportable = UNPORTABLE_KEYS.get(entry.where, frozenset())
+    wanted = {key: value for key, value in plistlib.loads(source.read_bytes()).items()
+              if key not in unportable}
     current = read_domain(entry.where)
     changed = sorted(key for key, value in wanted.items() if current.get(key) != value)
     if not changed:
@@ -333,10 +339,21 @@ def export_file(entry: Entry, settings_dir: Path) -> None:
     print(f"  {entry.app}: {target}")
 
 
+def applied_marker(entry: Entry) -> Path:
+    """where the checksum of the settings file last applied to entry is kept"""
+    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(state) / "macos-base-config" / "applied" / f"{entry.id}.sha256"
+
+
 def apply_file(entry: Entry, source: Path, dry_run: bool) -> None:
+    """Copy the saved file in. An app that rewrites its file on start (Tabby)
+    is left alone as long as the saved file is the one applied last time."""
     target = Path(os.path.expanduser(entry.where))
     data = source.read_bytes()
-    if target.is_file() and target.read_bytes() == data:
+    digest = hashlib.sha256(data).hexdigest()
+    marker = applied_marker(entry)
+    applied_before = marker.is_file() and marker.read_text().strip() == digest
+    if target.is_file() and (target.read_bytes() == data or applied_before):
         print(f"  {entry.app}: already set")
         return
     if dry_run:
@@ -348,6 +365,8 @@ def apply_file(entry: Entry, source: Path, dry_run: bool) -> None:
         if target.exists():
             target.rename(target.with_name(f"{target.name}.bak-{time.strftime('%Y%m%d-%H%M%S')}"))
         target.write_bytes(data)
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(digest + "\n")
     finally:
         if was_running:
             reopen_app(entry.app)
