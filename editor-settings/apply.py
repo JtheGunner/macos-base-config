@@ -20,22 +20,24 @@ import argparse
 import datetime
 import difflib
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SOURCE = HERE / "vscode.jsonc"
-# config folder under ~/Library/Application Support -> label
-# (same editors as intelli-key-port's install.py, macOS only)
+# config folder under ~/Library/Application Support -> (label, app bundle)
+# (same editors as intelli-key-port's install.py, macOS only). An editor that
+# is installed but was never started has no config folder yet: it is created.
 EDITORS = {
-    "Code": "VS Code",
-    "Code - Insiders": "VS Code Insiders",
-    "VSCodium": "VSCodium",
-    "Cursor": "Cursor",
-    "Windsurf": "Windsurf",
-    "Antigravity": "Antigravity",
-    "Antigravity IDE": "Antigravity IDE",
+    "Code": ("VS Code", "Visual Studio Code.app"),
+    "Code - Insiders": ("VS Code Insiders", "Visual Studio Code - Insiders.app"),
+    "VSCodium": ("VSCodium", "VSCodium.app"),
+    "Cursor": ("Cursor", "Cursor.app"),
+    "Windsurf": ("Windsurf", "Windsurf.app"),
+    "Antigravity": ("Antigravity", "Antigravity.app"),
+    "Antigravity IDE": ("Antigravity IDE", "Antigravity IDE.app"),
 }
 DEFAULT_INDENT = "    "
 
@@ -222,6 +224,7 @@ def apply_to(label: str, path: Path, wanted: dict, dry_run: bool) -> bool:
         path.write_text(after)
         print(f"  {label}: updated (backup {backup.name})")
     else:
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(after)
         print(f"  {label}: created {path}")
     return True
@@ -235,8 +238,9 @@ def main(argv: list[str] | None = None) -> int:
 
     wanted = load_source(SOURCE)
     support = Path.home() / "Library" / "Application Support"
-    found = [(label, support / folder / "User") for folder, label in EDITORS.items()
-             if (support / folder / "User").is_dir()]
+    applications = Path(os.environ.get("APPLICATIONS_DIR", "/Applications"))
+    found = [(label, support / folder / "User") for folder, (label, app) in EDITORS.items()
+             if (support / folder / "User").is_dir() or (applications / app).is_dir()]
     if not found:
         print("  no VS Code-family editor found")
         return 0
