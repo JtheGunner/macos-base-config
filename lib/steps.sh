@@ -109,46 +109,90 @@ find_brew() {
   return 1
 }
 
-# steps_need_sudo "<steps>" -> 0 when a step will ask for the sudo password:
-# brew (Homebrew, installers, Rosetta), macos with MACOS_DISABLE_GATEKEEPER=1
-steps_need_sudo() {
-  case " $1 " in *" brew "*) return 0 ;; esac
-  case " $1 " in *" macos "*) [ "$MACOS_DISABLE_GATEKEEPER" = 1 ] && return 0 ;; esac
-  return 1
+# --- one password per run -----------------------------------------------------
+# Homebrew resets sudo's timestamp on almost every brew command (brew.sh:
+# "sudo --reset-timestamp"), so a password typed once doesn't last. Homebrew
+# and its installer do honour SUDO_ASKPASS (sudo -A). ensure_sudo asks once,
+# when a step first needs sudo, and serves the password to an askpass helper
+# through a named pipe in a private temp dir. It stays in this process's
+# memory - never in a file, the environment or a command line - and the pipe
+# is gone when bootstrap.sh exits. Any process of your user can read the pipe
+# while the run lasts.
+SUDO_READY=false
+SUDO_ASKED=false
+ASKPASS_DIR=""
+ASKPASS_PIDS=""
+
+# ensure_sudo -> in an interactive run, ask for the password (3 tries), check
+# it and start the askpass helper; SUDO_READY=true then. Otherwise sudo asks
+# itself whenever it needs to.
+ensure_sudo() {
+  local password tries=0
+  if $SUDO_READY || $SUDO_ASKED || $DRY_RUN || ! may_wait; then return 0; fi
+  SUDO_ASKED=true
+  printf '%sYour password is needed once, for the installers and system settings.%s\n' "$C_BOLD" "$C_RESET"
+  while [ "$tries" -lt 3 ]; do
+    tries=$((tries + 1))
+    printf 'Password: '
+    IFS= read -r -s password || { echo; break; }
+    echo
+    if printf '%s\n' "$password" | sudo -S -p '' -v 2>/dev/null; then
+      start_askpass "$password" && SUDO_READY=true
+      return 0
+    fi
+    echo "Sorry, try again."
+  done
+  warn "no password - installers will ask for it themselves"
 }
 
-# prime_sudo -> ask for the password once, then keep sudo's timestamp fresh
-# in the background until bootstrap.sh exits, so installers don't ask again
-# one by one. SUDO_KEPT_ALIVE=true when it worked.
-SUDO_KEPT_ALIVE=false
-prime_sudo() {
-  if ! sudo -n true 2>/dev/null; then
-    printf '%sYour password is needed once, for the installers and system settings:%s\n' "$C_BOLD" "$C_RESET"
-    sudo -v || { warn "no sudo - installers will ask for the password themselves"; return 0; }
+# start_askpass PASSWORD -> the helper dir, the process that answers each read
+# of its pipe with PASSWORD, and a watchdog that removes both should
+# bootstrap.sh be killed; exports SUDO_ASKPASS
+start_askpass() {
+  local dir parent=$$
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/macos-base-config-askpass.XXXXXX")" || return 1
+  if ! chmod 700 "$dir" || ! mkfifo -m 600 "$dir/pipe"; then
+    rm -rf "$dir"
+    return 1
   fi
-  # sudo -v renews the timestamp; stdin stays the terminal (sudo keys its
-  # timestamp by it), output is closed so no caller's pipe is held open
-  ( while sleep 50 && kill -0 "$$" 2>/dev/null; do sudo -n -v; done ) >/dev/null 2>&1 &
-  SUDO_KEEPALIVE_PID=$!
-  # its pending sleep too, or that outlives bootstrap.sh by up to 50 s
-  trap 'pkill -P "$SUDO_KEEPALIVE_PID" 2>/dev/null; kill "$SUDO_KEEPALIVE_PID" 2>/dev/null' EXIT
-  SUDO_KEPT_ALIVE=true
+  printf '#!/bin/sh\nexec cat "%s/pipe"\n' "$dir" > "$dir/askpass"
+  chmod 700 "$dir/askpass"
+  ( while kill -0 "$parent" 2>/dev/null; do printf '%s\n' "$1" > "$dir/pipe" || exit 0; done ) \
+    </dev/null >/dev/null 2>&1 &
+  ASKPASS_PIDS="$!"
+  ( set --; while kill -0 "$parent" 2>/dev/null; do sleep 2; done
+    kill "$ASKPASS_PIDS" 2>/dev/null; rm -rf "$dir" ) </dev/null >/dev/null 2>&1 &
+  ASKPASS_PIDS="$ASKPASS_PIDS $!"
+  ASKPASS_DIR="$dir"
+  export SUDO_ASKPASS="$dir/askpass"
+  trap stop_askpass EXIT
+  trap 'exit 130' INT TERM
 }
 
-# refresh_sudo -> renew a primed sudo timestamp right before an installer
-# needs it (a long download can outlast sudo's timeout between keep-alives)
-refresh_sudo() {
-  if $SUDO_KEPT_ALIVE; then sudo -n -v 2>/dev/null || true; fi
+stop_askpass() {
+  local pid
+  for pid in $ASKPASS_PIDS; do
+    pkill -P "$pid" 2>/dev/null
+    kill "$pid" 2>/dev/null
+  done
+  [ -z "$ASKPASS_DIR" ] || rm -rf "$ASKPASS_DIR"
 }
 
-# install_homebrew -> run the official installer; with sudo primed it runs
-# without its own prompts (NONINTERACTIVE=1), else it asks for the password
+# sudo_run CMD... -> run_cmd sudo CMD, through the askpass helper once the
+# password is known
+sudo_run() {
+  if $SUDO_READY; then run_cmd sudo -A "$@"; else run_cmd sudo "$@"; fi
+}
+
+# install_homebrew -> run the official installer; with the password known it
+# runs without its own prompts (NONINTERACTIVE=1, sudo through SUDO_ASKPASS)
 install_homebrew() {
   local installer
   cmd_line "install Homebrew: /bin/bash -c \"\$(curl -fsSL $HOMEBREW_INSTALLER_URL)\""
   $DRY_RUN && return 0
   installer="$(curl -fsSL "$HOMEBREW_INSTALLER_URL")" || return 1
-  if $SUDO_KEPT_ALIVE; then
+  ensure_sudo
+  if $SUDO_READY; then
     NONINTERACTIVE=1 /bin/bash -c "$installer" && find_brew
   else
     /bin/bash -c "$installer" && find_brew
@@ -261,14 +305,16 @@ ensure_rosetta() {
   done
   [ -n "$needed" ] || return 0
   arch -x86_64 /usr/bin/true 2>/dev/null && return 0
-  refresh_sudo
-  run_cmd sudo softwareupdate --install-rosetta --agree-to-license ||
+  ensure_sudo
+  sudo_run softwareupdate --install-rosetta --agree-to-license ||
     warn "Rosetta install failed - $needed needs it to start"
 }
 
-# install_app_store_apps BREWFILE -> the App Store apps. Interactive runs ask
-# first: without an App Store sign-in, mas only opens sign-in dialogs. A
-# failure is a warning, not a failed step - the manual step links the apps.
+# install_app_store_apps BREWFILE -> the App Store apps (the mas lines of
+# BREWFILE), with mas itself rather than brew bundle, so no brew command
+# resets sudo's timestamp right before it. Interactive runs ask first:
+# without an App Store sign-in, mas only opens sign-in dialogs. A failure is
+# a warning, not a failed step - the manual step links the apps.
 install_app_store_apps() {
   local apps answer
   apps="$(sed -n 's/^mas "\(.*\)", id: .*/\1/p' "$1" | tr '\n' ',' | sed 's/,$//; s/,/, /g')"
@@ -281,20 +327,32 @@ install_app_store_apps() {
       return 0
     fi
   fi
-  sed 's/^/    /' "$1"
-  refresh_sudo
-  brew_bundle "$1" ||
+  if ! command -v mas >/dev/null 2>&1 && ! run_cmd brew install mas; then
+    warn "could not install mas - the manual step links the apps"
+    return 0
+  fi
+  ensure_sudo
+  # brew just reset sudo's timestamp: renew it for mas, no brew in between
+  if $SUDO_READY; then sudo -A -v 2>/dev/null || true; fi
+  # shellcheck disable=SC2046 # one argument per App Store id
+  run_cmd mas install $(sed -n 's/^mas ".*", id: \([0-9]*\)$/\1/p' "$1") ||
     warn "App Store install failed - sign in to the App Store; the manual step links the apps"
   return 0
 }
 
-# bundle_brewfile FILE -> show what FILE installs, prepare its taps, then
-# brew bundle it (with one retry)
+# bundle_brewfile FILE -> show what FILE installs; unless all of it is
+# installed already, prepare Rosetta and the taps, then brew bundle it (with
+# one retry). An installed Brewfile asks for no password.
 bundle_brewfile() {
   sed 's/^/    /' "$1"
+  if ! $DRY_RUN && brew bundle check --file="$1" --no-upgrade >/dev/null 2>&1; then
+    echo "  everything in it is installed already"
+    return 0
+  fi
+  note "installers may open windows or ask for permissions - close them; the manual step at the end walks you through what matters"
   ensure_rosetta "$1"
   prepare_taps "$1"
-  refresh_sudo
+  ensure_sudo
   bundle_with_retry "$1"
 }
 
@@ -315,7 +373,6 @@ step_brew() {
     echo "  no brew packages to install"
   fi
   if [ -f "$dir/Brewfile" ]; then
-    note "installers may open windows or ask for permissions - close them; the manual step at the end walks you through what matters"
     bundle_brewfile "$dir/Brewfile" || failed="brew bundle"
   fi
   [ -f "$dir/Brewfile.mas" ] && install_app_store_apps "$dir/Brewfile.mas"
@@ -507,9 +564,33 @@ step_keyboard() {
       run_cmd cp "$dir/CustomSwissGerman.keylayout" "$dir/CustomSwissGerman.icns" "$user_dir/" || return 1
   fi
 
-  if ! command -v "$SWIFT" >/dev/null 2>&1 || ! enable_input_source "$layout"; then
-    skip "$enable_hint"
+  if command -v "$SWIFT" >/dev/null 2>&1 && enable_input_source "$layout"; then
+    return 0
   fi
+  enable_input_source_at_login "$layout" || skip "$enable_hint"
+}
+
+# layout_id LAYOUT -> the id of the layout's <keyboard> element, empty if none
+layout_id() {
+  sed -n 's/.*<keyboard[^>]* id="\(-\{0,1\}[0-9][0-9]*\)".*/\1/p' "$1" | head -1
+}
+
+# enable_input_source_at_login LAYOUT -> without a working swift: add the
+# layout to the enabled input sources (com.apple.HIToolbox); macOS picks it
+# up at the next login. 1 when the layout has no id or defaults fails.
+enable_input_source_at_login() {
+  local id
+  if defaults read com.apple.HIToolbox AppleEnabledInputSources 2>/dev/null |
+    grep -qF "\"KeyboardLayout Name\" = \"$KEYBOARD_LAYOUT_NAME\""; then
+    echo "  input source '$KEYBOARD_LAYOUT_NAME': already enabled"
+    return 0
+  fi
+  id="$(layout_id "$1")"
+  [ -n "$id" ] || return 1
+  run_cmd defaults write com.apple.HIToolbox AppleEnabledInputSources -array-add \
+    "<dict><key>InputSourceKind</key><string>Keyboard Layout</string><key>KeyboardLayout ID</key><integer>$id</integer><key>KeyboardLayout Name</key><string>$KEYBOARD_LAYOUT_NAME</string></dict>" ||
+    return 1
+  note "input source '$KEYBOARD_LAYOUT_NAME' added for your next login - log out and in, then pick it in the menu bar"
 }
 
 # enable_input_source LAYOUT -> enable and select the layout with swift. Its
@@ -533,13 +614,16 @@ enable_input_source() {
 # requests the change and fails with "needs to be confirmed in System
 # Settings" - that is the expected outcome, not an error.
 disable_gatekeeper() {
-  local out
+  local out askpass=""
   if spctl --status 2>/dev/null | grep -q 'assessments disabled'; then
     echo "  Gatekeeper: already off"
     return 0
   fi
   cmd_line "sudo spctl --master-disable"
-  if ! $DRY_RUN && ! out="$(sudo spctl --master-disable 2>&1)"; then
+  ensure_sudo
+  $SUDO_READY && askpass="-A"
+  # shellcheck disable=SC2086 # no argument without the askpass helper
+  if ! $DRY_RUN && ! out="$(sudo $askpass spctl --master-disable 2>&1)"; then
     [ -n "$out" ] && echo "$out"
     case "$out" in
       *"needs to be confirmed in System Settings"*) ;;
@@ -716,6 +800,14 @@ manual_item() {
   MANUAL_TITLES+=("$1")
   MANUAL_TEXTS+=("$2")
   MANUAL_TARGETS+=("${3:-}")
+  MANUAL_CHECKED+=(false)
+}
+
+# manual_app_item TITLE TEXT TARGET -> a manual step done once its app is in
+# APPLICATIONS_DIR: listed only while the app is missing, never remembered
+manual_app_item() {
+  manual_item "$@"
+  MANUAL_CHECKED[${#MANUAL_CHECKED[@]} - 1]=true
 }
 
 open_target() {
@@ -748,6 +840,7 @@ manual_detected() {
 # manual_is_done I -> 0 when item I was confirmed on an earlier run or is
 # detected as done
 manual_is_done() {
+  ${MANUAL_CHECKED[$1]} && return 1
   grep -qxF "$(manual_key "$1")" "$(manual_state_file)" 2>/dev/null && return 0
   manual_detected "${MANUAL_TITLES[$1]}"
 }
@@ -755,6 +848,7 @@ manual_is_done() {
 # remember_manual I -> record item I as done
 remember_manual() {
   local file
+  ${MANUAL_CHECKED[$1]} && return 0
   file="$(manual_state_file)"
   mkdir -p "$(dirname "$file")" && manual_key "$1" >> "$file"
 }
@@ -783,7 +877,7 @@ guide_manual() {
 step_manual() {
   local licensed="" app count=0 last="" karabiner="" title text url i
   local done_titles="" done_count=0 open_items=""
-  MANUAL_TITLES=() MANUAL_TEXTS=() MANUAL_TARGETS=()
+  MANUAL_TITLES=() MANUAL_TEXTS=() MANUAL_TARGETS=() MANUAL_CHECKED=()
   [ -d "$KARABINER_APP" ] && karabiner="app:Karabiner-Elements"
   manual_item "Karabiner permissions" "allow the driver extension, Input Monitoring and Accessibility when Karabiner-Elements asks (karabiner-windows-keyboard-mapping-macos/setup.sh lists them)" "$karabiner"
   manual_item "Input source" "check '$KEYBOARD_LAYOUT_NAME' under System Settings > Keyboard > Input Sources, then log out and in" \
@@ -810,7 +904,7 @@ step_manual() {
     manual_item "Tabby" "unlock its vault with the passphrase from your password manager" app:Tabby
   fi
   while IFS=$'\t' read -r title text url; do
-    [ -n "$title" ] && manual_item "$title" "$text" "$url"
+    [ -n "$title" ] && manual_app_item "$title" "$text" "$url"
   done <<< "$(manual_package_hints "$SELECTED_PACKAGES")"
 
   for ((i = 0; i < ${#MANUAL_TITLES[@]}; i++)); do

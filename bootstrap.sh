@@ -71,11 +71,6 @@ record() {
   SUMMARY="$SUMMARY$line"$'\n'
 }
 
-# ask for the sudo password once, before the first installer needs it
-if may_wait && steps_need_sudo "$SELECTED"; then
-  prime_sudo
-fi
-
 for step in $SELECTED; do
   ui_header "$step:" "$(step_description "$step")"
   STEP_SKIP_REASON=""

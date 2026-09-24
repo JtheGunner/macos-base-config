@@ -114,8 +114,14 @@ clones it itself, so `./bootstrap.sh dotfiles` works on its own.
 
 **While it runs:**
 
-- It asks for your password **once**, up front (for Homebrew, the app
-  installers, Rosetta and Gatekeeper), and keeps sudo alive until it is done.
+- It asks for your password **once**, when a step first needs it (Homebrew,
+  the app installers, Rosetta, Gatekeeper) - and not at all when there is
+  nothing to install. Homebrew forgets sudo's sign-in on almost every `brew`
+  command, so the password is handed to Homebrew and sudo through
+  `SUDO_ASKPASS`: a helper reads it from a named pipe in a private temp
+  folder. It is kept only in the running bootstrap's memory - never in a
+  file, the environment or a command line - and the pipe is removed when the
+  run ends. While the run lasts, any program of your user could read it.
 - Its own lines are coloured: step headers, `+ commands`, warnings, and the
   summary by status. Set `NO_COLOR=1` to turn that off; piped output has none.
 - It opens no windows on its own until the `manual` step. App installers may
@@ -267,11 +273,13 @@ It remembers what is done, so a re-run only shows what is left:
   whose license you still have to enter - comes back.
 - Gatekeeper, the input source and the Karabiner driver are checked on this
   Mac directly.
+- Apps to install by hand or from the App Store count as done only once the
+  app is in `/Applications` - confirming them doesn't hide them.
 
 |    | Step                      | How                                                                                                                                         |
 |:--:|---------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
 | 🔐 | **Karabiner permissions** | Driver Extension, Input Monitoring, Accessibility. `karabiner-windows-keyboard-mapping-macos/setup.sh` opens the panes and lists the steps |
-| 🇨🇭 | **Input source**          | check *Custom Swiss German* under System Settings → Keyboard → Input Sources, then log out and in. The `keyboard` step enables it when it can |
+| 🇨🇭 | **Input source**          | check *Custom Swiss German* under System Settings → Keyboard → Input Sources, then log out and in. The `keyboard` step enables it when it can (with `swift`; without a working one it adds the layout for your next login) |
 | 🛡️ | **Gatekeeper**            | only with `MACOS_DISABLE_GATEKEEPER=1`: confirm "Allow applications from: Anywhere" under Privacy & Security (the `macos` step requests it, the `manual` step opens the pane; since macOS 15 the change only takes effect once confirmed there) |
 | 📌 | **Sidebar settings**      | only when Sidebar is installed and its backup is in `SETTINGS_DIR`: Sidebar → Settings → Expert → Backups → **Restore** the backup the `apps` step added (Sidebar has no way to import from a script) |
 | 🔑 | **Licenses**              | the installed ones of AltTab (Pro), Sidebar and Shottr: enter the keys from your password manager in each app; Tabby asks for its vault passphrase |
@@ -399,7 +407,8 @@ installs them.
   install it.
 - App Store packages need you signed in to the App Store. Paid apps must
   already belong to your Apple ID. In a terminal, the `brew` step asks first
-  (**Enter** installs, **s** skips); an App Store app that didn't install is
+  (**Enter** installs, **s** skips), then runs `mas install` itself; an App
+  Store app that didn't install is
   a warning, not a failed step, and the `manual` step links it in the App
   Store. (Virtual machines often can't sign in to the App Store at all.)
 - Apps outside the catalog go in your own Brewfile: set `BREW_BUNDLE_EXTRA`.
