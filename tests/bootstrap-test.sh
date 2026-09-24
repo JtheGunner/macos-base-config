@@ -1743,6 +1743,15 @@ run_bootstrap --no-pull keyboard
 assert_eq "$RC" 0
 assert_contains "$OUT" "  keyboard   skipped  (enable 'Custom Swiss German' under System Settings"
 
+it "enable-input-source.swift picks the right source and names a layout switch"
+if [ -x /usr/bin/swift ]; then
+  out="$(/usr/bin/swift "$REPO/enable-input-source.swift" --self-test 2>&1)"
+  assert_eq "$?" 0
+  assert_contains "$out" "self-test passed"
+else
+  echo "  (skipped: no /usr/bin/swift)"
+fi
+
 it "a swift that fails to compile shows one line and keeps its errors in a log"
 make_sandbox
 printf '#!/bin/bash\necho "error: failed to build module '"'"'Swift'"'"'; this SDK is not supported by the compiler" >&2\nexit 1\n' > "$SB/bin/swift"
