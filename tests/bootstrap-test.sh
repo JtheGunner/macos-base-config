@@ -1358,55 +1358,91 @@ assert_contains "$OUT" $'\033[32mok'
 assert_contains "$OUT" $'\033[31mfailed  \033[0m'
 assert_contains "$OUT" $'\033[33mskipped \033[0m'
 
-it "an interactive run asks for the sudo password once, up front"
+# brew_askpass_stub -> brew that logs, reports every Brewfile as missing,
+# and on "bundle --file" logs what the SUDO_ASKPASS helper answers
+brew_askpass_stub() {
+  cat > "$SB/bin/brew" <<EOF
+#!/bin/bash
+echo "brew \$*" >> "$LOG"
+case "\$1 \$2" in
+  "bundle check") exit 1 ;;
+  "bundle --file"*) [ -n "\${SUDO_ASKPASS:-}" ] && echo "askpass: \$("\$SUDO_ASKPASS")" >> "$LOG" ;;
+esac
+exit 0
+EOF
+  chmod +x "$SB/bin/brew"
+}
+# sudo_password_stub -> sudo that logs and accepts "secret" on stdin for -S
+sudo_password_stub() {
+  printf '#!/bin/bash\necho "sudo $*" >> "%s"\nif [ "$1" = -S ]; then read -r pw; [ "$pw" = secret ]; exit; fi\nexit 0\n' \
+    "$LOG" > "$SB/bin/sudo"
+  chmod +x "$SB/bin/sudo"
+}
+
+it "an interactive run asks for the password once, when first needed, and serves it via SUDO_ASKPASS"
 make_sandbox
-printf '#!/bin/bash\necho "sudo $*" >> "%s"\n[ "$1" = -n ] && exit 1\nexit 0\n' "$LOG" > "$SB/bin/sudo"
-chmod +x "$SB/bin/sudo"
-BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --no-pull brew
+brew_askpass_stub
+sudo_password_stub
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT=$'secret\n' run_bootstrap --no-pull brew
 assert_eq "$RC" 0
-assert_eq "$(head -2 "$LOG")" "sudo -n true
-sudo -v"
-assert_contains "$OUT" "Your password is needed once"
+assert_eq "$(printf '%s\n' "$OUT" | grep -c 'Your password is needed once')" 1
+assert_contains "$(cat "$LOG")" "sudo -S -p  -v"
+assert_contains "$(cat "$LOG")" "askpass: secret"
+assert_not_contains "$OUT" "secret"
+[ -z "$(ls "$SB/tmp")" ] || fail "askpass dir left behind: $(ls "$SB/tmp")"
 
-it "a primed sudo is refreshed before the installers, not otherwise"
+it "a wrong password is asked again, three times at most, then sudo asks itself"
+make_sandbox
+brew_askpass_stub
+sudo_password_stub
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT=$'a\nb\nc\n' run_bootstrap --no-pull brew
+assert_eq "$RC" 0
+assert_eq "$(grep -c '^sudo -S' "$LOG")" 3
+assert_contains "$OUT" "Sorry, try again."
+assert_contains "$OUT" "warn: no password - installers will ask for it themselves"
+assert_not_contains "$(cat "$LOG")" "askpass:"
+
+it "no password in a dry run, without a terminal, or when nothing needs installing"
 make_sandbox
 BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --no-pull brew
-assert_contains "$(cat "$LOG")" "sudo -n -v"
-: > "$LOG"
-run_bootstrap --no-pull brew
+assert_contains "$OUT" "everything in it is installed already"
+assert_not_contains "$OUT" "Your password"
+assert_not_contains "$OUT" "note: installers may open windows"
+brew_askpass_stub
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT=$'secret\n' run_bootstrap --dry-run --no-pull brew
+assert_not_contains "$OUT" "Your password"
+RUN_INPUT=$'secret\n' run_bootstrap --no-pull brew
+assert_not_contains "$OUT" "Your password"
 assert_not_contains "$(cat "$LOG")" "sudo"
 
-it "no password up front in a dry run, without a terminal, or when no step needs sudo"
+it "own sudo calls go through the askpass helper once the password is known"
 make_sandbox
-BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --dry-run --no-pull brew
-assert_not_contains "$(cat "$LOG")" "sudo"
-run_bootstrap --no-pull brew
-assert_not_contains "$(cat "$LOG")" "sudo"
-BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --no-pull editor
-assert_not_contains "$(cat "$LOG")" "sudo"
-: > "$LOG"
-sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
-BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --no-pull macos
-assert_contains "$(head -1 "$LOG")" "sudo -n true"
+SB_CATALOG="$SB/catalog.txt"
+echo 'steam | cask | steam | Steam | media | Steam games' > "$SB_CATALOG"
+sandbox_config 'PACKAGES="@all"' 'MACOS_DISABLE_GATEKEEPER=1'
+brew_askpass_stub
+sudo_password_stub
+stub "$SB/bin/arch" arch 1
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT=$'secret\n' run_bootstrap --no-pull brew macos
+SB_CATALOG=""
+assert_contains "$(cat "$LOG")" "sudo -A softwareupdate --install-rosetta --agree-to-license"
+assert_contains "$(cat "$LOG")" "sudo -A spctl --master-disable"
+assert_eq "$(printf '%s\n' "$OUT" | grep -c 'Your password is needed once')" 1
 
-it "the Homebrew installer runs without its prompts once sudo is primed"
+it "the Homebrew installer runs without its prompts once the password is known"
 make_sandbox
 rm "$SB/bin/brew"
+sudo_password_stub
 stub "$SB/brew-to-install" brew
-printf '#!/bin/bash\necho "curl $*" >> "%s"\necho "echo installer NONINTERACTIVE=\\${NONINTERACTIVE:-} >> %s; mkdir -p %s && cp %s %s"\n' \
+printf '#!/bin/bash\necho "curl $*" >> "%s"\necho "echo installer NONINTERACTIVE=\\${NONINTERACTIVE:-} askpass=\\${SUDO_ASKPASS:+set} >> %s; mkdir -p %s && cp %s %s"\n' \
   "$LOG" "$LOG" "$SB/homebrew/bin" "$SB/brew-to-install" "$SB/homebrew/bin/brew" > "$SB/bin/curl"
 chmod +x "$SB/bin/curl"
-BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --no-pull brew
-assert_contains "$(cat "$LOG")" "installer NONINTERACTIVE=1"
-make_sandbox
-rm "$SB/bin/brew"
-stub "$SB/brew-to-install" brew
-printf '#!/bin/bash\necho "curl $*" >> "%s"\necho "echo installer NONINTERACTIVE=\\${NONINTERACTIVE:-} >> %s; mkdir -p %s && cp %s %s"\n' \
-  "$LOG" "$LOG" "$SB/homebrew/bin" "$SB/brew-to-install" "$SB/homebrew/bin/brew" > "$SB/bin/curl"
-chmod +x "$SB/bin/curl"
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT=$'secret\n' run_bootstrap --no-pull brew
+assert_contains "$(cat "$LOG")" "installer NONINTERACTIVE=1 askpass=set"
+: > "$LOG"
+rm -rf "$SB/homebrew"
 run_bootstrap --no-pull brew
-assert_contains "$(cat "$LOG")" "installer NONINTERACTIVE="
-assert_not_contains "$(cat "$LOG")" "installer NONINTERACTIVE=1"
+assert_contains "$(cat "$LOG")" "installer NONINTERACTIVE= askpass="
 
 it "an interactive manual step walks through the items: Enter opens, Enter confirms, s skips"
 make_sandbox
@@ -1819,6 +1855,22 @@ assert_contains "$OUT" "swift failed - the Command Line Tools may be out of date
 assert_contains "$(cat "$SB/home/Library/Logs/macos-base-config/keyboard-swift.log")" "failed to build module"
 assert_contains "$OUT" "  keyboard   skipped  (enable 'Custom Swiss German'"
 
+it "without a working swift, the input source is added for the next login"
+make_sandbox
+printf '%s\n' '<?xml version="1.1" encoding="UTF-8"?>' \
+  '<keyboard group="126" id="-29390" name="Custom Swiss German" maxout="1">' '</keyboard>' \
+  > "$SB/parent/swiss-windows-keyboard-layout-macos/CustomSwissGerman.keylayout"
+printf '#!/bin/bash\necho "defaults $*" >> "%s"\n[ "$1" = write ]\n' "$LOG" > "$SB/bin/defaults"
+stub "$SB/bin/swift" swift 1
+run_bootstrap --no-pull keyboard
+assert_eq "$RC" 0
+assert_contains "$(cat "$LOG")" "defaults write com.apple.HIToolbox AppleEnabledInputSources -array-add <dict><key>InputSourceKind</key><string>Keyboard Layout</string><key>KeyboardLayout ID</key><integer>-29390</integer><key>KeyboardLayout Name</key><string>Custom Swiss German</string></dict>"
+assert_contains "$OUT" "note: input source 'Custom Swiss German' added for your next login - log out and in"
+assert_contains "$OUT" "  keyboard   ok"
+printf '#!/bin/bash\ncat <<"X"\n  "KeyboardLayout Name" = "Custom Swiss German";\nX\n' > "$SB/bin/defaults"
+run_bootstrap --no-pull keyboard
+assert_contains "$OUT" "input source 'Custom Swiss German': already enabled"
+
 it "a swift that succeeds shows its own output"
 make_sandbox
 printf '#!/bin/bash\necho "  input source '"'"'Custom Swiss German'"'"': enabled"\n' > "$SB/bin/swift"
@@ -1981,7 +2033,9 @@ INSTALLER_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.s
 # which puts a brew stub at $SB/homebrew/bin/brew (the BREW_CANDIDATES path);
 # a non-zero EXIT makes curl fail instead
 installer_stub() {
-  stub "$SB/brew-to-install" brew
+  # the brew it installs finds nothing installed yet
+  printf '#!/bin/bash\necho "brew $*" >> "%s"\n[ "$1 $2" = "bundle check" ] && exit 1\nexit 0\n' "$LOG" > "$SB/brew-to-install"
+  chmod +x "$SB/brew-to-install"
   printf '#!/bin/bash\necho "curl $*" >> "%s"\n[ %s = 0 ] || exit %s\necho "mkdir -p %s && cp %s %s"\n' \
     "$LOG" "${1:-0}" "${1:-0}" "$SB/homebrew/bin" "$SB/brew-to-install" "$SB/homebrew/bin/brew" \
     > "$SB/bin/curl"
@@ -1995,6 +2049,7 @@ brew_stub() {
   cat > "$SB/bin/brew" <<EOF
 #!/bin/bash
 echo "brew \$*" >> "$LOG"
+[ "\$1 \$2" = "bundle check" ] && exit 1
 for arg in "\$@"; do
   case "\$arg" in --file=*) sed 's/^/  | /' "\${arg#--file=}" >> "$LOG" ;; esac
 done
@@ -2004,8 +2059,9 @@ EOF
   chmod +x "$SB/bin/brew"
 }
 
-# brew_log -> $LOG with the random temp dir replaced by <tmp>
-brew_log() { sed "s|$SB/tmp/macos-base-config\.[A-Za-z0-9]*|<tmp>|g" "$LOG"; }
+# brew_log -> $LOG with the random temp dir replaced by <tmp>, without the
+# "brew bundle check" calls
+brew_log() { sed "s|$SB/tmp/macos-base-config\.[A-Za-z0-9]*|<tmp>|g" "$LOG" | grep -v '^brew bundle check'; }
 
 BASE_BREWFILE='  | tap "otuerk/sidebar"
   | cask "karabiner-elements"
@@ -2056,14 +2112,13 @@ SB_CATALOG="$SB/catalog.txt"
 printf '%s\n' 'firefox | cask | firefox | Firefox | web | Web browser' \
   'whatsapp | mas | 310633997 | WhatsApp | chat | Messenger' > "$SB_CATALOG"
 sandbox_config 'PACKAGES="@all"'
-brew_stub 0 Brewfile.mas
+brew_stub
+stub "$SB/bin/mas" mas 1
 run_bootstrap --no-pull brew macos manual
 assert_eq "$RC" 0
 assert_eq "$(brew_log | grep -v '^python3 ')" "brew bundle --file=<tmp>/Brewfile --no-upgrade
   | cask \"firefox\"
-brew bundle --file=<tmp>/Brewfile.mas --no-upgrade
-  | brew \"mas\"
-  | mas \"WhatsApp\", id: 310633997"
+mas install 310633997"
 assert_contains "$OUT" "warn: App Store install failed - sign in to the App Store; the manual step links the apps"
 assert_contains "$OUT" "  brew       ok"
 assert_contains "$OUT" "  - Install WhatsApp from the App Store: sign in to the App Store first"
@@ -2082,12 +2137,24 @@ BOOTSTRAP_INTERACTIVE=1 RUN_INPUT=$'s\n' run_bootstrap --no-pull brew
 assert_eq "$RC" 0
 assert_contains "$OUT" "App Store: WhatsApp - are you signed in to the App Store?"
 assert_contains "$OUT" "App Store skipped - the manual step links the apps"
-assert_not_contains "$(cat "$LOG")" "Brewfile.mas"
+assert_not_contains "$(cat "$LOG")" "mas install"
 : > "$LOG"
-BOOTSTRAP_INTERACTIVE=1 RUN_INPUT=$'\n' run_bootstrap --no-pull brew
+sudo_password_stub
+stub "$SB/bin/mas" mas
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT=$'\nsecret\n' run_bootstrap --no-pull brew
 SB_CATALOG=""
-assert_contains "$(cat "$LOG")" "Brewfile.mas"
-assert_contains "$(cat "$LOG")" "sudo -n -v"
+assert_eq "$(grep -A1 '^sudo -A -v' "$LOG")" "sudo -A -v
+mas install 310633997"
+
+it "mas is installed with brew when it is missing"
+make_sandbox
+SB_CATALOG="$SB/catalog.txt"
+printf '%s\n' 'whatsapp | mas | 310633997 | WhatsApp | chat | Messenger' > "$SB_CATALOG"
+sandbox_config 'PACKAGES="@all"'
+brew_stub
+run_bootstrap --no-pull brew
+SB_CATALOG=""
+assert_contains "$(cat "$LOG")" "brew install mas"
 
 it "the manual step links a selected App Store app that is missing"
 make_sandbox
@@ -2095,9 +2162,12 @@ SB_CATALOG="$SB/catalog.txt"
 printf '%s\n' 'whatsapp | mas | 310633997 | WhatsApp | chat | Messenger' > "$SB_CATALOG"
 sandbox_config 'PACKAGES="@all"'
 BOOTSTRAP_INTERACTIVE=1 RUN_INPUT=$'\n\n\n\n\n\n' run_bootstrap manual
-SB_CATALOG=""
 assert_contains "$OUT" "Install WhatsApp from the App Store"
 assert_contains "$(cat "$LOG")" "open macappstore://apps.apple.com/app/id310633997"
+run_bootstrap manual
+SB_CATALOG=""
+assert_contains "$OUT" "  - Install WhatsApp from the App Store"
+assert_not_contains "$(cat "$SB/home/.local/state/macos-base-config/manual-done")" "WhatsApp"
 
 it "brew installs Homebrew when missing, then bundles"
 make_sandbox
@@ -2117,7 +2187,7 @@ stub "$SB/homebrew/bin/brew" brew
 run_bootstrap --no-pull brew dotfiles
 assert_eq "$RC" 0
 assert_not_contains "$(cat "$LOG")" "curl"
-assert_contains "$(brew_log)" "brew bundle --file=<tmp>/Brewfile --no-upgrade"
+assert_contains "$(cat "$LOG")" "brew bundle check --file=$SB/tmp/macos-base-config."
 assert_contains "$OUT" "  dotfiles   ok"
 
 it "a failed Homebrew install fails the step, later steps still run"
