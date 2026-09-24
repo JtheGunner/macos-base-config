@@ -214,16 +214,21 @@ print_package_list() {
   done <<< "$rows"
 }
 
-# manual_package_hints "<selected ids>" -> "Install <app> by hand
-# (<description>)<TAB><url>" per selected "manual" package that is missing
+# manual_package_hints "<selected ids>" -> "<title>\t<text>\t<url>" per
+# selected package that you install yourself and that is missing: "manual"
+# packages (download page), and App Store apps the brew step couldn't install
 manual_package_hints() {
   local rows id source ref check _category description
   rows="$(catalog_rows)" || return 2
   while IFS=$'\t' read -r id source ref check _category description; do
-    [ "$source" = manual ] || continue
+    case "$source" in manual | mas) ;; *) continue ;; esac
     case " $1 " in *" $id "*) ;; *) continue ;; esac
-    [ "$(package_state manual "$check")" = installed ] && continue
-    printf 'Install %s by hand (%s)\t%s\n' "$check" "$description" "$ref"
+    [ "$(package_state "$source" "$check")" = installed ] && continue
+    if [ "$source" = mas ]; then
+      printf 'Install %s from the App Store\tsign in to the App Store first\tmacappstore://apps.apple.com/app/id%s\n' "$check" "$ref"
+    else
+      printf 'Install %s by hand\t%s: %s\t%s\n' "$check" "$description" "$ref" "$ref"
+    fi
   done <<< "$rows"
 }
 
