@@ -18,7 +18,7 @@ step_description() {
     editor)    echo "editor font settings for every VS Code-family editor" ;;
     apps)      echo "app settings from SETTINGS_DIR, per apps/registry.txt (no licenses)" ;;
     dotfiles)  echo "run the dotfiles repo's bootstrap (shell, git, tmux, Ghostty)" ;;
-    manual)    echo "print the manual, non-scriptable steps" ;;
+    manual)    echo "walk through the manual, non-scriptable steps" ;;
   esac
 }
 
@@ -71,11 +71,11 @@ select_steps() {
 
 # parse_args ARG... -> sets ACTION (run|list|list-packages|save-settings|
 # init-config|help), INIT_CONFIG_URL, CLI_STEPS, CLI_SKIP,
-# DRY_RUN, NO_PULL (true|false), CONFIG_PATH. Return 2 on a usage error.
+# DRY_RUN, NO_PULL, ASSUME_YES (true|false), CONFIG_PATH. Return 2 on a usage error.
 # Step names are validated later by select_steps.
 parse_args() {
   ACTION=run; CLI_STEPS=""; CLI_SKIP=""
-  DRY_RUN=false; NO_PULL=false; CONFIG_PATH=""; INIT_CONFIG_URL=""
+  DRY_RUN=false; NO_PULL=false; ASSUME_YES=false; CONFIG_PATH=""; INIT_CONFIG_URL=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --skip)
@@ -86,6 +86,7 @@ parse_args() {
         CONFIG_PATH="$2"; shift ;;
       --dry-run) DRY_RUN=true ;;
       --no-pull) NO_PULL=true ;;
+      --yes) ASSUME_YES=true ;;
       --list-packages) ACTION=list-packages ;;
       --save-settings) ACTION=save-settings ;;
       --init-config)
@@ -124,6 +125,7 @@ options:
   --skip <step>     skip a step or alias (repeatable)
   --dry-run         show what would happen, change nothing
   --no-pull         don't update sibling repos that are already cloned
+  --yes             don't wait for input: the manual step is a plain list
   --config <path>   config file (default: ~/.config/macos-base-config/config.sh)
   --list            list the steps
   --list-packages   list the package catalog, the selection and what is installed

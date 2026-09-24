@@ -26,12 +26,15 @@ PULLED_DIRS=""
 
 skip() { STEP_SKIP_REASON="$1"; }
 
+# cmd_line TEXT -> "+ TEXT", dimmed: a command bootstrap.sh runs (or would)
+cmd_line() { printf '%s+ %s%s\n' "$C_DIM" "$*" "$C_RESET"; }
+
 # run_cmd CMD... -> print, then run unless dry run (for commands that change
 # state and have no dry-run mode of their own: git, cp, omnishell)
-run_cmd() { echo "+ $*"; $DRY_RUN || "$@"; }
+run_cmd() { cmd_line "$*"; $DRY_RUN || "$@"; }
 
 # show_cmd CMD... -> print, then always run
-show_cmd() { echo "+ $*"; "$@"; }
+show_cmd() { cmd_line "$*"; "$@"; }
 
 # run_in DIR CMD... -> run CMD from DIR; in dry run CMD gets --dry-run. A DIR
 # that doesn't exist yet is fine in dry run (its clone was only announced).
@@ -40,7 +43,7 @@ run_in() {
   shift
   if $DRY_RUN; then set -- "$@" --dry-run; fi
   if [ ! -d "$dir" ]; then
-    echo "+ (cd $dir && $*)"
+    cmd_line "(cd $dir && $*)"
     $DRY_RUN && return 0
     echo "  missing $dir" >&2
     return 1
@@ -76,7 +79,7 @@ ensure_sibling() {
     case "$PULLED_DIRS" in *"|$dir|"*) return 0 ;; esac
     PULLED_DIRS="$PULLED_DIRS|$dir|"
     run_cmd git -C "$dir" pull --ff-only ||
-      echo "  warn: pull failed in $dir - using the existing checkout" >&2
+      warn "pull failed in $dir - using the existing checkout"
     return 0
   fi
   if [ -z "$url" ]; then
@@ -106,13 +109,42 @@ find_brew() {
   return 1
 }
 
-# install_homebrew -> run the official installer (asks for the sudo password)
+# steps_need_sudo "<steps>" -> 0 when a step will ask for the sudo password:
+# brew (Homebrew, installers, Rosetta), macos with MACOS_DISABLE_GATEKEEPER=1
+steps_need_sudo() {
+  case " $1 " in *" brew "*) return 0 ;; esac
+  case " $1 " in *" macos "*) [ "$MACOS_DISABLE_GATEKEEPER" = 1 ] && return 0 ;; esac
+  return 1
+}
+
+# prime_sudo -> ask for the password once, then keep sudo's timestamp fresh
+# in the background until bootstrap.sh exits, so installers don't ask again
+# one by one. SUDO_KEPT_ALIVE=true when it worked.
+SUDO_KEPT_ALIVE=false
+prime_sudo() {
+  if ! sudo -n true 2>/dev/null; then
+    printf '%sYour password is needed once, for the installers and system settings:%s\n' "$C_BOLD" "$C_RESET"
+    sudo -v || { warn "no sudo - installers will ask for the password themselves"; return 0; }
+  fi
+  # fds closed: the loop must not keep a caller's pipe open
+  ( while sleep 50 && kill -0 "$$" 2>/dev/null; do sudo -n true; done ) </dev/null >/dev/null 2>&1 &
+  SUDO_KEEPALIVE_PID=$!
+  trap 'kill "$SUDO_KEEPALIVE_PID" 2>/dev/null' EXIT
+  SUDO_KEPT_ALIVE=true
+}
+
+# install_homebrew -> run the official installer; with sudo primed it runs
+# without its own prompts (NONINTERACTIVE=1), else it asks for the password
 install_homebrew() {
   local installer
-  echo "+ install Homebrew: /bin/bash -c \"\$(curl -fsSL $HOMEBREW_INSTALLER_URL)\""
+  cmd_line "install Homebrew: /bin/bash -c \"\$(curl -fsSL $HOMEBREW_INSTALLER_URL)\""
   $DRY_RUN && return 0
   installer="$(curl -fsSL "$HOMEBREW_INSTALLER_URL")" || return 1
-  /bin/bash -c "$installer" && find_brew
+  if $SUDO_KEPT_ALIVE; then
+    NONINTERACTIVE=1 /bin/bash -c "$installer" && find_brew
+  else
+    /bin/bash -c "$installer" && find_brew
+  fi
 }
 
 # init_config URL DIR -> clone the private config repo into DIR (the config
@@ -146,11 +178,11 @@ pull_config_repo() {
   [ -d "$dir/.git" ] || return 0
   $NO_PULL && return 0
   if [ -n "$(git -C "$dir" status --porcelain 2>/dev/null)" ]; then
-    echo "  warn: local changes in $dir - not pulled" >&2
+    warn "local changes in $dir - not pulled"
     return 0
   fi
   run_cmd git -C "$dir" pull --ff-only ||
-    echo "  warn: pull failed in $dir - using the existing checkout" >&2
+    warn "pull failed in $dir - using the existing checkout"
   return 0
 }
 
@@ -188,7 +220,7 @@ prepare_taps() {
         tap="${tap%%\"*}"
         url=""
         case "$line" in *'", "'*) url="${line#*\", \"}" && url="${url%\"}" ;; esac
-        run_cmd brew tap "$tap" ${url:+"$url"} || echo "  warn: brew tap $tap failed" >&2 ;;
+        run_cmd brew tap "$tap" ${url:+"$url"} || warn "brew tap $tap failed" ;;
       'brew "'*/*/*) ref="${line#brew \"}" && formulae="$formulae ${ref%%\"*}" ;;
       'cask "'*/*/*) ref="${line#cask \"}" && casks="$casks ${ref%%\"*}" ;;
     esac
@@ -197,7 +229,7 @@ prepare_taps() {
   if [ -n "$formulae" ]; then run_cmd brew trust --formula $formulae || trusted=false; fi
   # shellcheck disable=SC2086
   if [ -n "$casks" ]; then run_cmd brew trust --cask $casks || trusted=false; fi
-  $trusted || echo "  warn: brew trust failed - Homebrew may skip packages from third-party taps" >&2
+  $trusted || warn "brew trust failed - Homebrew may skip packages from third-party taps"
 }
 
 # bundle_with_retry BREWFILE -> brew bundle it; a failure (often a download
@@ -222,7 +254,7 @@ ensure_rosetta() {
   [ -n "$needed" ] || return 0
   arch -x86_64 /usr/bin/true 2>/dev/null && return 0
   run_cmd sudo softwareupdate --install-rosetta --agree-to-license ||
-    echo "  warn: Rosetta install failed - $needed needs it to start" >&2
+    warn "Rosetta install failed - $needed needs it to start"
 }
 
 # bundle_brewfile FILE -> show what FILE installs, prepare its taps, then
@@ -250,8 +282,9 @@ step_brew() {
   if [ ! -f "$dir/Brewfile" ] && [ ! -f "$dir/Brewfile.mas" ] && [ -z "$BREW_BUNDLE_EXTRA" ]; then
     echo "  no brew packages to install"
   fi
-  if [ -f "$dir/Brewfile" ] && ! bundle_brewfile "$dir/Brewfile"; then
-    failed="brew bundle"
+  if [ -f "$dir/Brewfile" ]; then
+    note "installers may open windows or ask for permissions - close them; the manual step at the end walks you through what matters"
+    bundle_brewfile "$dir/Brewfile" || failed="brew bundle"
   fi
   if [ -f "$dir/Brewfile.mas" ] && ! { sed 's/^/    /' "$dir/Brewfile.mas" && brew_bundle "$dir/Brewfile.mas"; }; then
     failed="${failed:+$failed; }App Store: sign in, then re-run"
@@ -272,7 +305,7 @@ install_extra() {
   local installer
   case "$1" in
     script)
-      echo "+ curl --proto '=https' --tlsv1.2 -fsSL $2 | bash"
+      cmd_line "curl --proto '=https' --tlsv1.2 -fsSL $2 | bash"
       $DRY_RUN && return 0
       installer="$(curl --proto '=https' --tlsv1.2 -fsSL "$2")" || return 1
       /bin/bash -c "$installer" ;;
@@ -295,7 +328,7 @@ install_applet() {
     return 2
   fi
   if $DRY_RUN; then
-    echo "+ osacompile -o $target ($2 with NAS_MOUNT_SHARES)"
+    cmd_line "osacompile -o $target ($2 with NAS_MOUNT_SHARES)"
     return 0
   fi
   build="$(mktemp -d "${tmp_root%/}/applet.XXXXXX")" || return 1
@@ -383,21 +416,6 @@ step_extras() {
   return 0
 }
 
-# wait_for_karabiner_config -> start Karabiner-Elements once so it creates
-# ~/.config/karabiner (apply.sh needs it); 1 if it doesn't appear in time
-wait_for_karabiner_config() {
-  local config_dir="$HOME/.config/karabiner" tries
-  [ -d "$config_dir" ] && return 0
-  run_cmd open -ga Karabiner-Elements || true
-  $DRY_RUN && return 0
-  tries=$((KARABINER_WAIT_SECONDS * 2))
-  while [ ! -d "$config_dir" ] && [ "$tries" -gt 0 ]; do
-    sleep 0.5
-    tries=$((tries - 1))
-  done
-  [ -d "$config_dir" ]
-}
-
 step_karabiner() {
   local name=karabiner-windows-keyboard-mapping-macos
   local dir="$PARENT_DIR/$name"
@@ -405,8 +423,10 @@ step_karabiner() {
     skip "Karabiner-Elements not installed - add karabiner-elements to PACKAGES, then run ./bootstrap.sh brew"
     return 0
   fi
-  if ! wait_for_karabiner_config; then
-    STEP_FAIL_REASON="no ~/.config/karabiner - open Karabiner-Elements once"
+  # Karabiner-Elements creates the dir on its first start; creating it here
+  # instead keeps the app (and its permission prompts) for the manual step
+  if [ ! -d "$HOME/.config/karabiner" ] && ! run_cmd mkdir -p "$HOME/.config/karabiner"; then
+    STEP_FAIL_REASON="could not create ~/.config/karabiner"
     return 1
   fi
   ensure_sibling "$name" "$(sibling_url "$name")" "$dir" || return 1
@@ -467,7 +487,7 @@ step_keyboard() {
 # SDK and compiler don't match) keeps the compiler errors in a log, one line.
 enable_input_source() {
   local log="$HOME/Library/Logs/macos-base-config/keyboard-swift.log" out
-  echo "+ $SWIFT $HERE/enable-input-source.swift $1 $KEYBOARD_LAYOUT_NAME"
+  cmd_line "$SWIFT $HERE/enable-input-source.swift $1 $KEYBOARD_LAYOUT_NAME"
   $DRY_RUN && return 0
   if out="$("$SWIFT" "$HERE/enable-input-source.swift" "$1" "$KEYBOARD_LAYOUT_NAME" 2>&1)"; then
     [ -z "$out" ] || echo "$out"
@@ -479,7 +499,7 @@ enable_input_source() {
 }
 
 # disable_gatekeeper -> allow apps from anywhere; macOS asks to confirm it in
-# Privacy & Security, so that pane is opened. Since macOS 15, spctl only
+# Privacy & Security, which the manual step opens. Since macOS 15, spctl only
 # requests the change and fails with "needs to be confirmed in System
 # Settings" - that is the expected outcome, not an error.
 disable_gatekeeper() {
@@ -488,7 +508,7 @@ disable_gatekeeper() {
     echo "  Gatekeeper: already off"
     return 0
   fi
-  echo "+ sudo spctl --master-disable"
+  cmd_line "sudo spctl --master-disable"
   if ! $DRY_RUN && ! out="$(sudo spctl --master-disable 2>&1)"; then
     [ -n "$out" ] && echo "$out"
     case "$out" in
@@ -498,8 +518,7 @@ disable_gatekeeper() {
   elif [ -n "${out:-}" ]; then
     echo "$out"
   fi
-  run_cmd open "x-apple.systempreferences:com.apple.preference.security?General" || true
-  echo "  Gatekeeper: confirm 'Allow applications from: Anywhere' under Privacy & Security"
+  echo "  Gatekeeper: requested - confirm it in the manual step at the end"
 }
 
 step_macos() {
@@ -545,7 +564,7 @@ step_editor() {
 save_settings() {
   local rc=0
   if $DRY_RUN; then
-    echo "+ python3 $HERE/apps/app_settings.py export --dir $SETTINGS_DIR $*"
+    cmd_line "python3 $HERE/apps/app_settings.py export --dir $SETTINGS_DIR $*"
     return 0
   fi
   show_cmd python3 "$HERE/apps/app_settings.py" export --dir "$SETTINGS_DIR" "$@" || rc=$?
@@ -578,7 +597,7 @@ write_local_rc() {
     return 0
   fi
   if $DRY_RUN; then
-    echo "+ update the macos-base-config block in $file"
+    cmd_line "update the macos-base-config block in $file"
     return 0
   fi
   tmp="$(mktemp "${TMPDIR:-/tmp}/local-rc.XXXXXX")" || return 1
@@ -596,7 +615,7 @@ write_local_rc() {
   } > "$tmp" || { rm -f "$tmp"; return 1; }
   [ -e "$file" ] || ( umask 077 && : > "$file" ) || { rm -f "$tmp"; return 1; }
   # cat instead of mv: keeps the file's permissions and a symlinked rc file
-  echo "+ update the macos-base-config block in $file"
+  cmd_line "update the macos-base-config block in $file"
   cat "$tmp" > "$file" || { rm -f "$tmp"; return 1; }
   rm -f "$tmp"
 }
@@ -627,7 +646,7 @@ step_dotfiles() {
   # It runs with set -e in its own process; its exit code decides the step.
   set --
   [ "$DOTFILES_ASSUME_YES" = 1 ] && set -- --yes
-  echo "+ DOTFILES_TERMINALS=\"$DOTFILES_TERMINALS\" bash $dir/bootstrap.sh $*"
+  cmd_line "DOTFILES_TERMINALS=\"$DOTFILES_TERMINALS\" bash $dir/bootstrap.sh $*"
   if ! $DRY_RUN; then
     DOTFILES_TERMINALS="$DOTFILES_TERMINALS" bash "$dir/bootstrap.sh" "$@" || rc=$?
     if [ "$rc" -ne 0 ]; then
@@ -655,21 +674,58 @@ step_dotfiles() {
   run_cmd omnishell apply -y || rc=$?
   case "$rc" in
     0) ;;
-    1) echo "  warn: omnishell reports degraded module(s) - see 'omnishell doctor'" >&2 ;;
+    1) warn "omnishell reports degraded module(s) - see 'omnishell doctor'" ;;
     *) STEP_FAIL_REASON="omnishell apply exit $rc"
        return 1 ;;
   esac
 }
 
+# manual_item TITLE TEXT [TARGET] -> add a manual step; TARGET is what the
+# guide opens: app:<name> or a URL / System Settings pane
+manual_item() {
+  MANUAL_TITLES+=("$1")
+  MANUAL_TEXTS+=("$2")
+  MANUAL_TARGETS+=("${3:-}")
+}
+
+open_target() {
+  case "$1" in
+    app:*) run_cmd open -a "${1#app:}" ;;
+    *) run_cmd open "$1" ;;
+  esac
+}
+
+# guide_manual -> the manual steps one at a time: Enter opens the step's app
+# or pane, Enter again when done, s skips. End of input stops the guide.
+guide_manual() {
+  local i n=${#MANUAL_TITLES[@]} answer
+  for ((i = 0; i < n; i++)); do
+    printf '\n  %s[%d/%d] %s%s\n' "$C_BOLD$C_MAGENTA" $((i + 1)) "$n" "${MANUAL_TITLES[$i]}" "$C_RESET"
+    printf '        %s\n' "${MANUAL_TEXTS[$i]}"
+    if [ -n "${MANUAL_TARGETS[$i]}" ]; then
+      printf '        %sEnter%s: open it   %ss%s: skip > ' "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
+      read -r answer || { echo; return 0; }
+      [ "$answer" = s ] && continue
+      open_target "${MANUAL_TARGETS[$i]}"
+    fi
+    printf '        %sEnter%s when done > ' "$C_BOLD" "$C_RESET"
+    read -r answer || { echo; return 0; }
+  done
+}
+
 step_manual() {
-  local licensed="" app count=0 last=""
-  echo "  - Karabiner permissions: karabiner-windows-keyboard-mapping-macos/setup.sh opens the panes"
-  echo "  - Input source: check '$KEYBOARD_LAYOUT_NAME' under System Settings > Keyboard > Input Sources, then log out and in"
+  local licensed="" app count=0 last="" karabiner="" title url i
+  MANUAL_TITLES=() MANUAL_TEXTS=() MANUAL_TARGETS=()
+  [ -d "$KARABINER_APP" ] && karabiner="app:Karabiner-Elements"
+  manual_item "Karabiner permissions" "allow the driver extension, Input Monitoring and Accessibility when Karabiner-Elements asks (karabiner-windows-keyboard-mapping-macos/setup.sh lists them)" "$karabiner"
+  manual_item "Input source" "check '$KEYBOARD_LAYOUT_NAME' under System Settings > Keyboard > Input Sources, then log out and in" \
+    "x-apple.systempreferences:com.apple.Keyboard-Settings.extension"
   if [ "$MACOS_DISABLE_GATEKEEPER" = 1 ]; then
-    echo "  - Gatekeeper: confirm 'Allow applications from: Anywhere' under Privacy & Security"
+    manual_item "Gatekeeper" "confirm 'Allow applications from: Anywhere' under Privacy & Security" \
+      "x-apple.systempreferences:com.apple.preference.security?General"
   fi
   if [ -d "$APPLICATIONS_DIR/Sidebar.app" ] && [ -f "$SETTINGS_DIR/sidebar.sidebarbackup" ]; then
-    echo "  - Sidebar settings: Settings > Expert > Backups > restore the backup the apps step added"
+    manual_item "Sidebar settings" "Settings > Expert > Backups > restore the backup the apps step added" app:Sidebar
   fi
   for app in "AltTab:AltTab (Pro)" "Sidebar:Sidebar" "Shottr:Shottr"; do
     [ -d "$APPLICATIONS_DIR/${app%%:*}.app" ] || continue
@@ -679,11 +735,21 @@ step_manual() {
   done
   case "$count" in
     0) ;;
-    1) echo "  - Licenses: enter the $last key from your password manager" ;;
-    *) echo "  - Licenses: enter the $licensed and $last keys from your password manager" ;;
+    1) manual_item "Licenses" "enter the $last key from your password manager" ;;
+    *) manual_item "Licenses" "enter the $licensed and $last keys from your password manager" ;;
   esac
   if [ -d "$APPLICATIONS_DIR/Tabby.app" ] && [ -f "$SETTINGS_DIR/tabby.yaml" ]; then
-    echo "  - Tabby: unlock its vault with the passphrase from your password manager"
+    manual_item "Tabby" "unlock its vault with the passphrase from your password manager" app:Tabby
   fi
-  manual_package_hints "$SELECTED_PACKAGES"
+  while IFS=$'\t' read -r title url; do
+    [ -n "$title" ] && manual_item "$title" "$url" "$url"
+  done <<< "$(manual_package_hints "$SELECTED_PACKAGES")"
+
+  if may_wait; then
+    guide_manual
+    return 0
+  fi
+  for ((i = 0; i < ${#MANUAL_TITLES[@]}; i++)); do
+    printf '  - %s%s%s: %s\n' "$C_BOLD$C_MAGENTA" "${MANUAL_TITLES[$i]}" "$C_RESET" "${MANUAL_TEXTS[$i]}"
+  done
 }

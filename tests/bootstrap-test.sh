@@ -68,6 +68,12 @@ it "parse_args defaults"
 parse_args
 assert_eq "$ACTION|$CLI_STEPS|$CLI_SKIP|$DRY_RUN|$NO_PULL|$CONFIG_PATH" "run|||false|false|"
 
+it "parse_args: --yes answers every prompt, default off"
+parse_args
+assert_eq "$ASSUME_YES" false
+parse_args --yes
+assert_eq "$ASSUME_YES" true
+
 it "parse_args collects steps, skips and flags"
 parse_args --dry-run keymaps --skip vscode --no-pull --config /tmp/x.sh dotfiles --skip manual
 assert_eq "$ACTION" run
@@ -387,7 +393,7 @@ assert_eq "$(cat "$d/Brewfile")" 'brew "uv"'
 it "manual hints: selected and missing only"
 mkdir -p "$TMP/apps3"
 out="$(APPLICATIONS_DIR="$TMP/apps3" PACKAGE_CATALOG="$f" manual_package_hints "filezilla hf")"
-assert_eq "$out" "  - Install FileZilla by hand (FTP client): https://filezilla-project.org/download.php?type=client"
+assert_eq "$out" "Install FileZilla by hand (FTP client)	https://filezilla-project.org/download.php?type=client"
 assert_eq "$(APPLICATIONS_DIR="$TMP/apps3" PACKAGE_CATALOG="$f" manual_package_hints "hf")" ""
 mkdir -p "$TMP/apps3/FileZilla.app"
 assert_eq "$(APPLICATIONS_DIR="$TMP/apps3" PACKAGE_CATALOG="$f" manual_package_hints "filezilla")" ""
@@ -1243,7 +1249,8 @@ run_bootstrap() {
     BREW_CANDIDATES="$SB/homebrew/bin/brew" KARABINER_WAIT_SECONDS=0 \
     KEYBOARD_SYSTEM_DIR="$SB/system-layouts" SWIFT="${SWIFT_BIN:-$SB/bin/swift}" \
     APPLICATIONS_DIR="$SB/Applications" TMPDIR="$SB/tmp/" PACKAGE_CATALOG="${SB_CATALOG:-}" \
-    /bin/bash "$APP/bootstrap.sh" "$@" 2>&1 </dev/null)"
+    UI_COLOR="${UI_COLOR:-0}" BOOTSTRAP_INTERACTIVE="${BOOTSTRAP_INTERACTIVE:-0}" \
+    /bin/bash "$APP/bootstrap.sh" "$@" 2>&1 < <(if [ -n "${RUN_INPUT+x}" ]; then printf '%s' "$RUN_INPUT"; fi))"
   RC=$?
 }
 
@@ -1312,6 +1319,95 @@ make_sandbox
 sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
 run_bootstrap manual
 assert_contains "$OUT" "Gatekeeper"
+
+it "no colours unless asked for (no terminal here)"
+make_sandbox
+stub_sibling karabiner-windows-keyboard-mapping-macos apply.sh 3
+run_bootstrap --no-pull karabiner macos
+assert_not_contains "$OUT" $'\033['
+
+it "UI_COLOR=1 colours step headers, commands, warnings and the summary by status"
+make_sandbox
+stub_sibling karabiner-windows-keyboard-mapping-macos apply.sh 3
+UI_COLOR=1 run_bootstrap --no-pull karabiner macos jetbrains
+assert_contains "$OUT" $'\033[1m\033[36m== macos:\033[0m'
+assert_contains "$OUT" $'\033[2m+ '
+assert_contains "$OUT" $'\033[32mok'
+assert_contains "$OUT" $'\033[31mfailed  \033[0m'
+assert_contains "$OUT" $'\033[33mskipped \033[0m'
+
+it "an interactive run asks for the sudo password once, up front"
+make_sandbox
+printf '#!/bin/bash\necho "sudo $*" >> "%s"\n[ "$1" = -n ] && exit 1\nexit 0\n' "$LOG" > "$SB/bin/sudo"
+chmod +x "$SB/bin/sudo"
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --no-pull brew
+assert_eq "$RC" 0
+assert_eq "$(head -2 "$LOG")" "sudo -n true
+sudo -v"
+assert_contains "$OUT" "Your password is needed once"
+
+it "no password up front in a dry run, without a terminal, or when no step needs sudo"
+make_sandbox
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --dry-run --no-pull brew
+assert_not_contains "$(cat "$LOG")" "sudo"
+run_bootstrap --no-pull brew
+assert_not_contains "$(cat "$LOG")" "sudo"
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --no-pull editor
+assert_not_contains "$(cat "$LOG")" "sudo"
+: > "$LOG"
+sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --no-pull macos
+assert_contains "$(head -1 "$LOG")" "sudo -n true"
+
+it "the Homebrew installer runs without its prompts once sudo is primed"
+make_sandbox
+rm "$SB/bin/brew"
+stub "$SB/brew-to-install" brew
+printf '#!/bin/bash\necho "curl $*" >> "%s"\necho "echo installer NONINTERACTIVE=\\${NONINTERACTIVE:-} >> %s; mkdir -p %s && cp %s %s"\n' \
+  "$LOG" "$LOG" "$SB/homebrew/bin" "$SB/brew-to-install" "$SB/homebrew/bin/brew" > "$SB/bin/curl"
+chmod +x "$SB/bin/curl"
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --no-pull brew
+assert_contains "$(cat "$LOG")" "installer NONINTERACTIVE=1"
+make_sandbox
+rm "$SB/bin/brew"
+stub "$SB/brew-to-install" brew
+printf '#!/bin/bash\necho "curl $*" >> "%s"\necho "echo installer NONINTERACTIVE=\\${NONINTERACTIVE:-} >> %s; mkdir -p %s && cp %s %s"\n' \
+  "$LOG" "$LOG" "$SB/homebrew/bin" "$SB/brew-to-install" "$SB/homebrew/bin/brew" > "$SB/bin/curl"
+chmod +x "$SB/bin/curl"
+run_bootstrap --no-pull brew
+assert_contains "$(cat "$LOG")" "installer NONINTERACTIVE="
+assert_not_contains "$(cat "$LOG")" "installer NONINTERACTIVE=1"
+
+it "an interactive manual step walks through the items: Enter opens, Enter confirms, s skips"
+make_sandbox
+mkdir -p "$SB/Applications/AltTab.app"
+sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT=$'\n\ns\n\n\n\n' run_bootstrap manual
+assert_eq "$RC" 0
+assert_contains "$OUT" "[1/4] Karabiner permissions"
+assert_contains "$OUT" "[2/4] Input source"
+assert_contains "$OUT" "[3/4] Gatekeeper"
+assert_contains "$OUT" "[4/4] Licenses"
+assert_eq "$(cat "$LOG")" "open -a Karabiner-Elements
+open x-apple.systempreferences:com.apple.preference.security?General"
+assert_not_contains "$OUT" "  - Karabiner permissions"
+
+it "the guide stops at the end of input instead of waiting"
+make_sandbox
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap manual
+assert_eq "$RC" 0
+assert_contains "$OUT" "[1/2] Karabiner permissions"
+assert_not_contains "$OUT" "[2/2]"
+assert_eq "$(cat "$LOG")" ""
+
+it "--yes and a dry run keep the manual step a plain list"
+make_sandbox
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --yes manual
+assert_contains "$OUT" "  - Karabiner permissions:"
+assert_not_contains "$OUT" "[1/"
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --dry-run manual
+assert_contains "$OUT" "  - Karabiner permissions:"
+assert_eq "$(cat "$LOG")" ""
 
 it "editor runs right after vscode and calls editor-settings/apply.py"
 make_sandbox
@@ -1524,29 +1620,30 @@ assert_contains "$OUT" "Karabiner-Elements not installed - add karabiner-element
 assert_contains "$OUT" "  karabiner  skipped  (Karabiner-Elements not installed"
 assert_eq "$(cat "$LOG")" ""
 
-it "karabiner opens the app once when its config dir is missing"
+it "karabiner creates a missing config dir instead of starting the app"
 make_sandbox
 rmdir "$SB/home/.config/karabiner"
-printf '#!/bin/bash\necho "open $*" >> "%s"\nmkdir -p "$HOME/.config/karabiner"\n' "$LOG" > "$SB/bin/open"
 run_bootstrap --no-pull karabiner
 assert_eq "$RC" 0
-assert_eq "$(cat "$LOG")" "open -ga Karabiner-Elements
-karabiner-windows-keyboard-mapping-macos/apply.sh "
+[ -d "$SB/home/.config/karabiner" ] || fail "config dir not created"
+assert_eq "$(cat "$LOG")" "karabiner-windows-keyboard-mapping-macos/apply.sh "
 
-it "karabiner fails when its config dir never appears"
+it "karabiner fails when its config dir can't be created"
 make_sandbox
-rmdir "$SB/home/.config/karabiner"
+rm -rf "$SB/home/.config"
+touch "$SB/home/.config"
 run_bootstrap --no-pull karabiner
 assert_eq "$RC" 1
-assert_contains "$OUT" "  karabiner  failed   (no ~/.config/karabiner - open Karabiner-Elements once)"
-assert_eq "$(cat "$LOG")" "open -ga Karabiner-Elements"
+assert_contains "$OUT" "  karabiner  failed   (could not create ~/.config/karabiner)"
+assert_eq "$(cat "$LOG")" ""
 
-it "karabiner dry run only announces the first launch"
+it "karabiner dry run only announces the config dir"
 make_sandbox
 rmdir "$SB/home/.config/karabiner"
 run_bootstrap --dry-run --no-pull karabiner
 assert_eq "$RC" 0
-assert_contains "$OUT" "+ open -ga Karabiner-Elements"
+assert_contains "$OUT" "+ mkdir -p $SB/home/.config/karabiner"
+[ -d "$SB/home/.config/karabiner" ] && fail "dry run created the config dir"
 assert_not_contains "$(cat "$LOG")" "open "
 
 it "a failing step is reported, later steps still run, exit 1"
@@ -1672,15 +1769,15 @@ run_bootstrap --no-pull macos
 assert_eq "$RC" 0
 assert_eq "$(cat "$LOG")" "python3 macos-defaults.py"
 
-it "MACOS_DISABLE_GATEKEEPER=1 disables it and opens the confirmation pane"
+it "MACOS_DISABLE_GATEKEEPER=1 requests it; the manual step opens the pane later"
 make_sandbox
 sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
 run_bootstrap --no-pull macos
 assert_eq "$RC" 0
 assert_eq "$(cat "$LOG")" "python3 macos-defaults.py
 spctl --status
-sudo spctl --master-disable
-open x-apple.systempreferences:com.apple.preference.security?General"
+sudo spctl --master-disable"
+assert_contains "$OUT" "Gatekeeper: requested - confirm it in the manual step at the end"
 
 it "Gatekeeper that is already off is not touched"
 make_sandbox
@@ -1699,7 +1796,7 @@ run_bootstrap --no-pull macos
 assert_eq "$RC" 1
 assert_contains "$OUT" "  macos      failed   (Gatekeeper)"
 
-it "Gatekeeper waiting for its confirmation in System Settings is ok; the pane opens"
+it "Gatekeeper waiting for its confirmation in System Settings is ok"
 make_sandbox
 printf '#!/bin/bash\necho "sudo $*" >> "%s"\necho "Globally disabling the assessment system needs to be confirmed in System Settings."\nexit 1\n' \
   "$LOG" > "$SB/bin/sudo"
@@ -1708,7 +1805,7 @@ sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
 run_bootstrap --no-pull macos
 assert_eq "$RC" 0
 assert_contains "$OUT" "needs to be confirmed in System Settings"
-assert_contains "$(cat "$LOG")" "open x-apple.systempreferences:com.apple.preference.security?General"
+assert_not_contains "$(cat "$LOG")" "open "
 assert_contains "$OUT" "  macos      ok"
 
 it "Gatekeeper dry run only shows the commands"
@@ -1861,6 +1958,7 @@ brew trust --cask otuerk/sidebar/sidebar
 brew bundle --file=<tmp>/Brewfile --no-upgrade
 $BASE_BREWFILE"
 assert_contains "$OUT" '    cask "alt-tab"'
+assert_contains "$OUT" "note: installers may open windows or ask for permissions - close them; the manual step at the end walks you through what matters"
 assert_contains "$OUT" "  brew       ok"
 [ -z "$(ls -A "$SB/tmp")" ] || fail "temp Brewfile dir left behind"
 
