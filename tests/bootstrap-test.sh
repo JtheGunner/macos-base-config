@@ -68,6 +68,12 @@ it "parse_args defaults"
 parse_args
 assert_eq "$ACTION|$CLI_STEPS|$CLI_SKIP|$DRY_RUN|$NO_PULL|$CONFIG_PATH" "run|||false|false|"
 
+it "parse_args: --yes answers every prompt, default off"
+parse_args
+assert_eq "$ASSUME_YES" false
+parse_args --yes
+assert_eq "$ASSUME_YES" true
+
 it "parse_args collects steps, skips and flags"
 parse_args --dry-run keymaps --skip vscode --no-pull --config /tmp/x.sh dotfiles --skip manual
 assert_eq "$ACTION" run
@@ -191,7 +197,7 @@ it "the shipped catalog covers every group and leaves the dotfiles' tools out"
 all=" $(select_packages @all) "
 for id in karabiner-elements firefox visual-studio-code filezilla claude claude-code maccy mouseboost-pro \
   whatsapp windows-app nas-mount spotify coreutils gh gopls sass composer mariadb hf mlx-lm litellm \
-  nano-pdf gemini-cli openclaw ghostscript codexbar dutix; do
+  nano-pdf antigravity-cli openclaw ghostscript codexbar dutix; do
   assert_contains "$all" " $id "
 done
 for group in base browser dev ai productivity communication remote media \
@@ -321,6 +327,28 @@ cask "user/tap/app"'
 assert_eq "$(cat "$d/Brewfile.mas")" 'brew "mas"
 mas "WhatsApp", id: 310633997'
 
+it "write_brewfiles: a tap listed in taps.txt next to the catalog gets its URL"
+f="$(write_catalog "${TEST_CATALOG_LINES[@]}")"
+printf '%s\n' '# tap | url' 'user/tap | https://github.com/User/tap-repo' > "$TMP/taps.txt"
+d="$(mktemp -d "$TMP/bf.XXXXXX")"
+APPLICATIONS_DIR="$TMP/none" PACKAGE_CATALOG="$f" write_brewfiles "$d" "tool app" >/dev/null
+assert_eq "$(cat "$d/Brewfile")" 'tap "user/tap", "https://github.com/User/tap-repo"
+brew "user/tap/tool"
+cask "user/tap/app"'
+printf '%s\n' 'user/tap | http://example.test/tap' > "$TMP/taps.txt"
+out="$(PACKAGE_CATALOG="$f" write_brewfiles "$d" "tool" 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_contains "$out" "$TMP/taps.txt:1: expected: <user>/<tap> | https://<url>"
+rm "$TMP/taps.txt"
+
+it "the shipped catalog: tlrc and antigravity-cli replace tldr and gemini-cli; mlx-dspark's tap has its URL"
+rows="$(catalog_rows)"
+assert_contains "$rows" "tlrc"
+assert_contains "$rows" "antigravity-cli"
+assert_not_contains "$rows" "gemini-cli"
+assert_not_contains "$(printf '%s\n' "$rows" | cut -f1)" "tldr"
+assert_eq "$(tap_urls)" "arahim3/mlx-dspark	https://github.com/ARahim3/mlx-dspark"
+
 it "apps already installed are left out; an empty Brewfile is not written"
 mkdir -p "$TMP/apps2/Some App.app" "$TMP/apps2/WhatsApp.app"
 d="$(mktemp -d "$TMP/bf.XXXXXX")"
@@ -365,7 +393,7 @@ assert_eq "$(cat "$d/Brewfile")" 'brew "uv"'
 it "manual hints: selected and missing only"
 mkdir -p "$TMP/apps3"
 out="$(APPLICATIONS_DIR="$TMP/apps3" PACKAGE_CATALOG="$f" manual_package_hints "filezilla hf")"
-assert_eq "$out" "  - Install FileZilla by hand (FTP client): https://filezilla-project.org/download.php?type=client"
+assert_eq "$out" "Install FileZilla by hand (FTP client)	https://filezilla-project.org/download.php?type=client"
 assert_eq "$(APPLICATIONS_DIR="$TMP/apps3" PACKAGE_CATALOG="$f" manual_package_hints "hf")" ""
 mkdir -p "$TMP/apps3/FileZilla.app"
 assert_eq "$(APPLICATIONS_DIR="$TMP/apps3" PACKAGE_CATALOG="$f" manual_package_hints "filezilla")" ""
@@ -626,7 +654,7 @@ editor_dir() {
   mkdir -p "$dir"
   echo "$dir"
 }
-run_editor_apply() { OUT="$(HOME="$EH" python3 "$EDITOR_APPLY" "$@" 2>&1)"; RC=$?; }
+run_editor_apply() { OUT="$(HOME="$EH" APPLICATIONS_DIR="$EH/Applications" python3 "$EDITOR_APPLY" "$@" 2>&1)"; RC=$?; }
 backups() { ls "$1" | grep -c 'settings.json.bak-' || true; }
 
 it "editor settings replace a value, keep comments and other keys"
@@ -695,6 +723,17 @@ assert_eq "$RC" 0
 assert_contains "$OUT" "Antigravity IDE: already set"
 assert_eq "$(cat "$d/settings.json")" "$before"
 assert_eq "$(backups "$d")" 0
+
+it "editor settings are created for an installed editor that was never started"
+editor_home
+mkdir -p "$EH/Applications/Visual Studio Code.app"
+OUT="$(HOME="$EH" APPLICATIONS_DIR="$EH/Applications" python3 "$EDITOR_APPLY" 2>&1)"; RC=$?
+assert_eq "$RC" 0
+assert_contains "$OUT" "VS Code: created"
+[ -f "$EH/Library/Application Support/Code/User/settings.json" ] || fail "settings.json not created"
+[ -e "$EH/Library/Application Support/Cursor" ] && fail "created a dir for a missing editor"
+OUT="$(HOME="$EH" APPLICATIONS_DIR="$EH/none" python3 "$EDITOR_APPLY" --dry-run 2>&1)"
+assert_contains "$OUT" "VS Code: already set"
 
 it "editor settings dry run shows a diff and writes nothing"
 editor_home
@@ -1210,7 +1249,8 @@ run_bootstrap() {
     BREW_CANDIDATES="$SB/homebrew/bin/brew" KARABINER_WAIT_SECONDS=0 \
     KEYBOARD_SYSTEM_DIR="$SB/system-layouts" SWIFT="${SWIFT_BIN:-$SB/bin/swift}" \
     APPLICATIONS_DIR="$SB/Applications" TMPDIR="$SB/tmp/" PACKAGE_CATALOG="${SB_CATALOG:-}" \
-    /bin/bash "$APP/bootstrap.sh" "$@" 2>&1 </dev/null)"
+    UI_COLOR="${UI_COLOR:-0}" BOOTSTRAP_INTERACTIVE="${BOOTSTRAP_INTERACTIVE:-0}" \
+    /bin/bash "$APP/bootstrap.sh" "$@" 2>&1 < <(if [ -n "${RUN_INPUT+x}" ]; then printf '%s' "$RUN_INPUT"; fi))"
   RC=$?
 }
 
@@ -1279,6 +1319,95 @@ make_sandbox
 sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
 run_bootstrap manual
 assert_contains "$OUT" "Gatekeeper"
+
+it "no colours unless asked for (no terminal here)"
+make_sandbox
+stub_sibling karabiner-windows-keyboard-mapping-macos apply.sh 3
+run_bootstrap --no-pull karabiner macos
+assert_not_contains "$OUT" $'\033['
+
+it "UI_COLOR=1 colours step headers, commands, warnings and the summary by status"
+make_sandbox
+stub_sibling karabiner-windows-keyboard-mapping-macos apply.sh 3
+UI_COLOR=1 run_bootstrap --no-pull karabiner macos jetbrains
+assert_contains "$OUT" $'\033[1m\033[36m== macos:\033[0m'
+assert_contains "$OUT" $'\033[2m+ '
+assert_contains "$OUT" $'\033[32mok'
+assert_contains "$OUT" $'\033[31mfailed  \033[0m'
+assert_contains "$OUT" $'\033[33mskipped \033[0m'
+
+it "an interactive run asks for the sudo password once, up front"
+make_sandbox
+printf '#!/bin/bash\necho "sudo $*" >> "%s"\n[ "$1" = -n ] && exit 1\nexit 0\n' "$LOG" > "$SB/bin/sudo"
+chmod +x "$SB/bin/sudo"
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --no-pull brew
+assert_eq "$RC" 0
+assert_eq "$(head -2 "$LOG")" "sudo -n true
+sudo -v"
+assert_contains "$OUT" "Your password is needed once"
+
+it "no password up front in a dry run, without a terminal, or when no step needs sudo"
+make_sandbox
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --dry-run --no-pull brew
+assert_not_contains "$(cat "$LOG")" "sudo"
+run_bootstrap --no-pull brew
+assert_not_contains "$(cat "$LOG")" "sudo"
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --no-pull editor
+assert_not_contains "$(cat "$LOG")" "sudo"
+: > "$LOG"
+sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --no-pull macos
+assert_contains "$(head -1 "$LOG")" "sudo -n true"
+
+it "the Homebrew installer runs without its prompts once sudo is primed"
+make_sandbox
+rm "$SB/bin/brew"
+stub "$SB/brew-to-install" brew
+printf '#!/bin/bash\necho "curl $*" >> "%s"\necho "echo installer NONINTERACTIVE=\\${NONINTERACTIVE:-} >> %s; mkdir -p %s && cp %s %s"\n' \
+  "$LOG" "$LOG" "$SB/homebrew/bin" "$SB/brew-to-install" "$SB/homebrew/bin/brew" > "$SB/bin/curl"
+chmod +x "$SB/bin/curl"
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --no-pull brew
+assert_contains "$(cat "$LOG")" "installer NONINTERACTIVE=1"
+make_sandbox
+rm "$SB/bin/brew"
+stub "$SB/brew-to-install" brew
+printf '#!/bin/bash\necho "curl $*" >> "%s"\necho "echo installer NONINTERACTIVE=\\${NONINTERACTIVE:-} >> %s; mkdir -p %s && cp %s %s"\n' \
+  "$LOG" "$LOG" "$SB/homebrew/bin" "$SB/brew-to-install" "$SB/homebrew/bin/brew" > "$SB/bin/curl"
+chmod +x "$SB/bin/curl"
+run_bootstrap --no-pull brew
+assert_contains "$(cat "$LOG")" "installer NONINTERACTIVE="
+assert_not_contains "$(cat "$LOG")" "installer NONINTERACTIVE=1"
+
+it "an interactive manual step walks through the items: Enter opens, Enter confirms, s skips"
+make_sandbox
+mkdir -p "$SB/Applications/AltTab.app"
+sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT=$'\n\ns\n\n\n\n' run_bootstrap manual
+assert_eq "$RC" 0
+assert_contains "$OUT" "[1/4] Karabiner permissions"
+assert_contains "$OUT" "[2/4] Input source"
+assert_contains "$OUT" "[3/4] Gatekeeper"
+assert_contains "$OUT" "[4/4] Licenses"
+assert_eq "$(cat "$LOG")" "open -a Karabiner-Elements
+open x-apple.systempreferences:com.apple.preference.security?General"
+assert_not_contains "$OUT" "  - Karabiner permissions"
+
+it "the guide stops at the end of input instead of waiting"
+make_sandbox
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap manual
+assert_eq "$RC" 0
+assert_contains "$OUT" "[1/2] Karabiner permissions"
+assert_not_contains "$OUT" "[2/2]"
+assert_eq "$(cat "$LOG")" ""
+
+it "--yes and a dry run keep the manual step a plain list"
+make_sandbox
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --yes manual
+assert_contains "$OUT" "  - Karabiner permissions:"
+assert_not_contains "$OUT" "[1/"
+BOOTSTRAP_INTERACTIVE=1 RUN_INPUT="" run_bootstrap --dry-run manual
+assert_contains "$OUT" "  - Karabiner permissions:"
+assert_eq "$(cat "$LOG")" ""
 
 it "editor runs right after vscode and calls editor-settings/apply.py"
 make_sandbox
@@ -1491,29 +1620,30 @@ assert_contains "$OUT" "Karabiner-Elements not installed - add karabiner-element
 assert_contains "$OUT" "  karabiner  skipped  (Karabiner-Elements not installed"
 assert_eq "$(cat "$LOG")" ""
 
-it "karabiner opens the app once when its config dir is missing"
+it "karabiner creates a missing config dir instead of starting the app"
 make_sandbox
 rmdir "$SB/home/.config/karabiner"
-printf '#!/bin/bash\necho "open $*" >> "%s"\nmkdir -p "$HOME/.config/karabiner"\n' "$LOG" > "$SB/bin/open"
 run_bootstrap --no-pull karabiner
 assert_eq "$RC" 0
-assert_eq "$(cat "$LOG")" "open -ga Karabiner-Elements
-karabiner-windows-keyboard-mapping-macos/apply.sh "
+[ -d "$SB/home/.config/karabiner" ] || fail "config dir not created"
+assert_eq "$(cat "$LOG")" "karabiner-windows-keyboard-mapping-macos/apply.sh "
 
-it "karabiner fails when its config dir never appears"
+it "karabiner fails when its config dir can't be created"
 make_sandbox
-rmdir "$SB/home/.config/karabiner"
+rm -rf "$SB/home/.config"
+touch "$SB/home/.config"
 run_bootstrap --no-pull karabiner
 assert_eq "$RC" 1
-assert_contains "$OUT" "  karabiner  failed   (no ~/.config/karabiner - open Karabiner-Elements once)"
-assert_eq "$(cat "$LOG")" "open -ga Karabiner-Elements"
+assert_contains "$OUT" "  karabiner  failed   (could not create ~/.config/karabiner)"
+assert_eq "$(cat "$LOG")" ""
 
-it "karabiner dry run only announces the first launch"
+it "karabiner dry run only announces the config dir"
 make_sandbox
 rmdir "$SB/home/.config/karabiner"
 run_bootstrap --dry-run --no-pull karabiner
 assert_eq "$RC" 0
-assert_contains "$OUT" "+ open -ga Karabiner-Elements"
+assert_contains "$OUT" "+ mkdir -p $SB/home/.config/karabiner"
+[ -d "$SB/home/.config/karabiner" ] && fail "dry run created the config dir"
 assert_not_contains "$(cat "$LOG")" "open "
 
 it "a failing step is reported, later steps still run, exit 1"
@@ -1622,6 +1752,25 @@ else
   echo "  (skipped: no /usr/bin/swift)"
 fi
 
+it "a swift that fails to compile shows one line and keeps its errors in a log"
+make_sandbox
+printf '#!/bin/bash\necho "error: failed to build module '"'"'Swift'"'"'; this SDK is not supported by the compiler" >&2\nexit 1\n' > "$SB/bin/swift"
+chmod +x "$SB/bin/swift"
+run_bootstrap --no-pull keyboard
+assert_eq "$RC" 0
+assert_not_contains "$OUT" "failed to build module"
+assert_contains "$OUT" "swift failed - the Command Line Tools may be out of date (System Settings > General > Software Update); details: $SB/home/Library/Logs/macos-base-config/keyboard-swift.log"
+assert_contains "$(cat "$SB/home/Library/Logs/macos-base-config/keyboard-swift.log")" "failed to build module"
+assert_contains "$OUT" "  keyboard   skipped  (enable 'Custom Swiss German'"
+
+it "a swift that succeeds shows its own output"
+make_sandbox
+printf '#!/bin/bash\necho "  input source '"'"'Custom Swiss German'"'"': enabled"\n' > "$SB/bin/swift"
+chmod +x "$SB/bin/swift"
+run_bootstrap --no-pull keyboard
+assert_contains "$OUT" "input source 'Custom Swiss German': enabled"
+assert_contains "$OUT" "  keyboard   ok"
+
 # --- Gatekeeper (macos step) ------------------------------------------------
 it "Gatekeeper is left alone by default"
 make_sandbox
@@ -1629,15 +1778,15 @@ run_bootstrap --no-pull macos
 assert_eq "$RC" 0
 assert_eq "$(cat "$LOG")" "python3 macos-defaults.py"
 
-it "MACOS_DISABLE_GATEKEEPER=1 disables it and opens the confirmation pane"
+it "MACOS_DISABLE_GATEKEEPER=1 requests it; the manual step opens the pane later"
 make_sandbox
 sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
 run_bootstrap --no-pull macos
 assert_eq "$RC" 0
 assert_eq "$(cat "$LOG")" "python3 macos-defaults.py
 spctl --status
-sudo spctl --master-disable
-open x-apple.systempreferences:com.apple.preference.security?General"
+sudo spctl --master-disable"
+assert_contains "$OUT" "Gatekeeper: requested - confirm it in the manual step at the end"
 
 it "Gatekeeper that is already off is not touched"
 make_sandbox
@@ -1656,7 +1805,7 @@ run_bootstrap --no-pull macos
 assert_eq "$RC" 1
 assert_contains "$OUT" "  macos      failed   (Gatekeeper)"
 
-it "Gatekeeper waiting for its confirmation in System Settings is ok; the pane opens"
+it "Gatekeeper waiting for its confirmation in System Settings is ok"
 make_sandbox
 printf '#!/bin/bash\necho "sudo $*" >> "%s"\necho "Globally disabling the assessment system needs to be confirmed in System Settings."\nexit 1\n' \
   "$LOG" > "$SB/bin/sudo"
@@ -1665,7 +1814,7 @@ sandbox_config 'MACOS_DISABLE_GATEKEEPER=1'
 run_bootstrap --no-pull macos
 assert_eq "$RC" 0
 assert_contains "$OUT" "needs to be confirmed in System Settings"
-assert_contains "$(cat "$LOG")" "open x-apple.systempreferences:com.apple.preference.security?General"
+assert_not_contains "$(cat "$LOG")" "open "
 assert_contains "$OUT" "  macos      ok"
 
 it "Gatekeeper dry run only shows the commands"
@@ -1813,9 +1962,12 @@ make_sandbox
 brew_stub
 run_bootstrap --no-pull brew
 assert_eq "$RC" 0
-assert_eq "$(brew_log)" "brew bundle --file=<tmp>/Brewfile --no-upgrade
+assert_eq "$(brew_log)" "brew tap otuerk/sidebar
+brew trust --cask otuerk/sidebar/sidebar
+brew bundle --file=<tmp>/Brewfile --no-upgrade
 $BASE_BREWFILE"
 assert_contains "$OUT" '    cask "alt-tab"'
+assert_contains "$OUT" "note: installers may open windows or ask for permissions - close them; the manual step at the end walks you through what matters"
 assert_contains "$OUT" "  brew       ok"
 [ -z "$(ls -A "$SB/tmp")" ] || fail "temp Brewfile dir left behind"
 
@@ -1867,6 +2019,8 @@ installer_stub
 run_bootstrap --no-pull brew
 assert_eq "$RC" 0
 assert_eq "$(brew_log)" "curl -fsSL $INSTALLER_URL
+brew tap otuerk/sidebar
+brew trust --cask otuerk/sidebar/sidebar
 brew bundle --file=<tmp>/Brewfile --no-upgrade"
 
 it "brew uses a Homebrew that is installed but not on PATH"
@@ -1898,6 +2052,96 @@ run_bootstrap --no-pull brew
 assert_eq "$RC" 1
 assert_contains "$OUT" "  brew       failed   (brew bundle)"
 assert_contains "$(cat "$LOG")" "brew bundle --file=$SB/home/Brewfile.local --no-upgrade"
+
+# brew_flaky_stub N -> brew that logs its arguments, fails the first N
+# "bundle --file" runs, and answers "bundle check" with a missing cask
+brew_flaky_stub() {
+  cat > "$SB/bin/brew" <<EOF
+#!/bin/bash
+echo "brew \$*" >> "$LOG"
+case "\$*" in
+  "bundle check"*) echo "brew bundle can't satisfy your Brewfile's dependencies."
+    echo "→ Cask firefox needs to be installed."; exit 1 ;;
+  "bundle --file"*)
+    n=\$(cat "$SB/bundle-runs" 2>/dev/null || echo 0); echo \$((n + 1)) > "$SB/bundle-runs"
+    [ "\$n" -lt "$1" ] && exit 1 ;;
+esac
+exit 0
+EOF
+  chmod +x "$SB/bin/brew"
+}
+
+it "third-party taps are tapped (with their URL) and their packages trusted one by one"
+make_sandbox
+SB_CATALOG="$SB/catalog.txt"
+printf '%s\n' 'tool | formula | user/tap/tool | - | cli | a tapped formula' \
+  'app | cask | other/tap/app | Some App | web | a tapped cask' \
+  'gh | formula | gh | - | cli | GitHub CLI' > "$SB_CATALOG"
+echo 'other/tap | https://github.com/Other/app-tap' > "$SB/taps.txt"
+sandbox_config 'PACKAGES="@all"'
+brew_stub
+run_bootstrap --no-pull brew
+SB_CATALOG=""
+assert_eq "$RC" 0
+assert_eq "$(brew_log | grep -v '^  |')" "brew tap user/tap
+brew tap other/tap https://github.com/Other/app-tap
+brew trust --formula user/tap/tool
+brew trust --cask other/tap/app
+brew bundle --file=<tmp>/Brewfile --no-upgrade"
+
+it "a failing tap or trust only warns; the bundle still runs"
+make_sandbox
+brew_stub 0 otuerk
+run_bootstrap --no-pull brew
+assert_eq "$RC" 0
+assert_contains "$OUT" "warn: brew tap otuerk/sidebar failed"
+assert_contains "$OUT" "warn: brew trust failed - Homebrew may skip packages from third-party taps"
+assert_contains "$(brew_log)" "brew bundle --file=<tmp>/Brewfile --no-upgrade"
+
+it "a failed brew bundle is tried once more; a second success is ok"
+make_sandbox
+brew_flaky_stub 1
+run_bootstrap --no-pull brew
+assert_eq "$RC" 0
+assert_eq "$(grep -c '^brew bundle --file' "$LOG")" 2
+assert_contains "$OUT" "brew bundle failed - trying once more"
+assert_contains "$OUT" "  brew       ok"
+
+it "a brew bundle that fails twice names what is still missing"
+make_sandbox
+brew_flaky_stub 9
+run_bootstrap --no-pull brew
+assert_eq "$RC" 1
+assert_eq "$(grep -c '^brew bundle --file' "$LOG")" 2
+assert_contains "$OUT" "  still missing: Cask firefox"
+assert_contains "$OUT" "  brew       failed   (brew bundle)"
+
+it "Rosetta is installed when a selected package needs it and it is missing"
+make_sandbox
+SB_CATALOG="$SB/catalog.txt"
+printf '%s\n' 'steam | cask | steam | Steam | media | Steam games' 'vlc | cask | vlc | VLC | media | player' > "$SB_CATALOG"
+sandbox_config 'PACKAGES="@all"'
+brew_stub
+stub "$SB/bin/arch" arch 1
+run_bootstrap --no-pull brew
+assert_eq "$RC" 0
+assert_contains "$(cat "$LOG")" "sudo softwareupdate --install-rosetta --agree-to-license"
+: > "$LOG"
+stub "$SB/bin/arch" arch 0
+run_bootstrap --no-pull brew
+assert_not_contains "$(cat "$LOG")" "softwareupdate"
+: > "$LOG"
+stub "$SB/bin/arch" arch 1
+sandbox_config 'PACKAGES="vlc"'
+run_bootstrap --no-pull brew
+assert_not_contains "$(cat "$LOG")" "softwareupdate"
+: > "$LOG"
+sandbox_config 'PACKAGES="@all"'
+stub "$SB/bin/sudo" sudo 1
+run_bootstrap --no-pull brew
+SB_CATALOG=""
+assert_eq "$RC" 0
+assert_contains "$OUT" "warn: Rosetta install failed - steam needs it to start"
 
 it "BREW_BUNDLE_EXTRA runs after the catalog bundle, also with PACKAGES=\"\""
 make_sandbox

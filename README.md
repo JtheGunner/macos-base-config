@@ -57,7 +57,7 @@ the summary at the end (exit code 1), it never aborts the rest.
    ├─ repos       clone / pull each sibling repo (repos.txt) into the parent folder
    ├─ brew        Homebrew (installed if missing) + the selected packages (default: Karabiner, AltTab, Sidebar, font)
    ├─ extras      selected packages from outside Homebrew: install scripts, npm, pipx, uv, go; the nas-mount app
-   ├─ karabiner   Karabiner config → ~/.config/karabiner   (starts Karabiner once if needed)
+   ├─ karabiner   Karabiner config → ~/.config/karabiner
    ├─ keyboard    Custom Swiss German layout → ~/Library/Keyboard Layouts, enabled + selected
    ├─ macos       macos-defaults.py: system hotkeys, Finder shortcut, font smoothing (+ Gatekeeper, opt-in)
    ├─ jetbrains   JetBrains keymap → IDE config, set active (skipped until PhpStorm has a config)
@@ -65,7 +65,7 @@ the summary at the end (exit code 1), it never aborts the rest.
    ├─ editor      font settings → settings.json of every VS Code-family editor
    ├─ apps        app settings from SETTINGS_DIR, per apps/registry.txt   (no licenses)
    ├─ dotfiles    the dotfiles repo's own bootstrap.sh: shell, prompt, git, tmux, Ghostty
-   ├─ manual      print the manual steps
+   ├─ manual      the manual steps, one at a time
    └─ summary     ok / skipped / failed per step
 ```
 
@@ -94,7 +94,7 @@ step named, every step runs.
 | 🔤 | `editor`    | `editor-settings/apply.py`                          |
 | 🗂️ | `apps`      | `apps/app_settings.py apply`                        |
 | 🐚 | `dotfiles`  | `dotfiles/bootstrap.sh`                             |
-| ✋ | `manual`    | print the manual steps                              |
+| ✋ | `manual`    | walk through the manual steps                       |
 
 `keymaps` is an alias for `jetbrains vscode`. A step that needs a sibling repo
 clones it itself, so `./bootstrap.sh dotfiles` works on its own.
@@ -104,12 +104,23 @@ clones it itself, so `./bootstrap.sh dotfiles` works on its own.
 | `--skip <step>`   | skip a step or alias; repeatable                                           |
 | `--dry-run`       | show what would happen; sub-tools get `--dry-run`, no git, no dotfiles run |
 | `--no-pull`       | don't update siblings that are already cloned                              |
+| `--yes`           | don't wait for input: the `manual` step is a plain list                    |
 | `--config <path>` | use this config file                                                       |
 | `--list`          | list the steps                                                             |
 | `--list-packages` | list the package catalog: what is selected, what is installed             |
 | `--save-settings [app…]` | save the app settings into `SETTINGS_DIR`, see [App settings](#app-settings) |
 | `--init-config <git-url>` | clone your private config repo into the config dir, see [Private config repo](#private-config-repo) |
 | `-h`, `--help`    | usage                                                                      |
+
+**While it runs:**
+
+- It asks for your password **once**, up front (for Homebrew, the app
+  installers, Rosetta and Gatekeeper), and keeps sudo alive until it is done.
+- Its own lines are coloured: step headers, `+ commands`, warnings, and the
+  summary by status. Set `NO_COLOR=1` to turn that off; piped output has none.
+- It opens no windows on its own until the `manual` step. App installers may
+  still open theirs (TeamViewer, Google Drive, …) or ask for permissions: close
+  them, the `manual` step walks you through what matters.
 
 ---
 
@@ -243,14 +254,16 @@ python3 macos-defaults.py            # apply; log out / in for the hotkeys + fon
 
 ## ✋ Manual steps
 
-The `manual` step prints a reminder of these. macOS doesn't let a script do
-them.
+macOS doesn't let a script do these. In a terminal, the `manual` step walks
+you through them one at a time: **Enter** opens the app or System Settings
+pane, **Enter** again when done, **s** skips. With `--yes`, in a dry run or
+with piped output it prints them as a list.
 
 |    | Step                      | How                                                                                                                                         |
 |:--:|---------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
 | 🔐 | **Karabiner permissions** | Driver Extension, Input Monitoring, Accessibility. `karabiner-windows-keyboard-mapping-macos/setup.sh` opens the panes and lists the steps |
 | 🇨🇭 | **Input source**          | check *Custom Swiss German* under System Settings → Keyboard → Input Sources, then log out and in. The `keyboard` step enables it when it can |
-| 🛡️ | **Gatekeeper**            | only with `MACOS_DISABLE_GATEKEEPER=1`: confirm "Allow applications from: Anywhere" under Privacy & Security (the `macos` step requests it and opens the pane; since macOS 15 the change only takes effect once confirmed there) |
+| 🛡️ | **Gatekeeper**            | only with `MACOS_DISABLE_GATEKEEPER=1`: confirm "Allow applications from: Anywhere" under Privacy & Security (the `macos` step requests it, the `manual` step opens the pane; since macOS 15 the change only takes effect once confirmed there) |
 | 📌 | **Sidebar settings**      | only when Sidebar is installed and its backup is in `SETTINGS_DIR`: Sidebar → Settings → Expert → Backups → **Restore** the backup the `apps` step added (Sidebar has no way to import from a script) |
 | 🔑 | **Licenses**              | the installed ones of AltTab (Pro), Sidebar and Shottr: enter the keys from your password manager in each app; Tabby asks for its vault passphrase |
 
@@ -360,10 +373,10 @@ source column in `packages/catalog.txt` says where each one comes from.
 | 💬 | `communication` | telegram, whatsapp |
 | 🛰️ | `remote`        | tailscale-app, teamviewer, windows-app, nas-mount |
 | 🎵 | `media`         | spotify, vlc, steam |
-| 🐚 | `cli-shell`     | coreutils, htop, tldr, screenfetch, iproute2mac |
+| 🐚 | `cli-shell`     | coreutils, htop, tlrc, screenfetch, iproute2mac |
 | 🛠️ | `cli-dev`       | gh, git-filter-repo, go, gopls, nvm, pipx, uv, python@3.12, python@3.14, php@8.3, php@8.4, composer, qodana, sass |
 | 🗄️ | `cli-ops`       | mariadb, mysql-client, helm, sshpass |
-| 🧠 | `cli-ai`        | summarize, openai-whisper, hf, mlx-lm, gemini-cli, litellm, mlx-vlm, mlx-dspark-cli *(pipx)*, nano-pdf *(uv)*, continue-cli, openclaw, clawhub *(npm)* |
+| 🧠 | `cli-ai`        | summarize, openai-whisper, hf, mlx-lm, antigravity-cli, litellm, mlx-vlm, mlx-dspark-cli *(pipx)*, nano-pdf *(uv)*, continue-cli, openclaw, clawhub *(npm)* |
 | 📄 | `cli-docs`      | ghostscript, poppler, tesseract, tesseract-lang |
 | 🍎 | `cli-macos`     | codexbar, remindctl, memo, spogo, dutix |
 
@@ -378,6 +391,14 @@ installs them.
 - App Store packages need you signed in to the App Store. Paid apps must
   already belong to your Apple ID.
 - Apps outside the catalog go in your own Brewfile: set `BREW_BUNDLE_EXTRA`.
+- Packages from third-party taps (`<user>/<tap>/<name>`) are trusted one by
+  one with `brew trust` before the bundle: Homebrew 7 skips packages from
+  taps nobody trusted. A tap whose repo isn't `github.com/<user>/homebrew-<tap>`
+  needs its URL in [`packages/taps.txt`](packages/taps.txt).
+- A failed `brew bundle` (often a download reset on a busy network) is tried
+  once more; after that, the step names what is still missing.
+- Steam is built for Intel: when it is selected and Rosetta 2 is missing, the
+  `brew` step installs Rosetta first.
 - `pipx`, `uv` and `go` are installed by the `brew` step when a selected
   package needs them. `npm` packages need Node: `nvm install --lts` first.
 - A package whose command is already on your `PATH` is left alone, however it
@@ -471,7 +492,8 @@ The `brew` step installs JetBrains Mono (package `font-jetbrains-mono`, in
 [`editor-settings/vscode.jsonc`](editor-settings/vscode.jsonc) (font family,
 size, weight) in the `User/settings.json` of every VS Code-family editor it
 finds: VS Code, VS Code Insiders, VSCodium, Cursor, Windsurf, Antigravity,
-Antigravity IDE.
+Antigravity IDE. An editor that is installed but was never started gets a new
+`settings.json`.
 
 ```sh
 ./bootstrap.sh editor --dry-run   # diff per settings.json
