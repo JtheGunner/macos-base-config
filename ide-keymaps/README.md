@@ -24,7 +24,7 @@ git‑diffable fallback: ~1 KB, regenerated on demand.
 | `apply.sh`                                 | this repo → the IDE config + set it active (`options/mac/keymap.xml`); terminal *Use Option as Meta key* off. Quit the IDE first. |
 | `set-terminal-option.py`                   | sets one option in `options/terminal.xml` (used by `apply.sh`), keeps the others, backs the file up                    |
 | `port-vscode.sh`                           | runs `intelli-key-port` with this machine's layers: `windows-keymap`, `karabiner-winkeys`, then the personal one below. |
-| `intelli-key-port-personal.jsonc`          | personal layer: `Ctrl+Y` redo, `Ctrl+S` save, numpad zoom, `Shift+Enter` terminal newline, …                           |
+| `intelli-key-port-personal.jsonc`          | personal layer: `Ctrl+Y` redo, `Ctrl+S` save, numpad zoom, `Shift+Enter` terminal newline, `Ctrl+Shift+C` copies text in panels, … |
 
 `apply.sh` and `sync.sh` walk every `PhpStorm*` / `IntelliJIdea*` config dir
 they find and use the newest.
