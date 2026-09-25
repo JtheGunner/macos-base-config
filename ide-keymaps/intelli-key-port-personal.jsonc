@@ -21,10 +21,11 @@
     { "key": "ctrl+,",       "command": "workbench.action.openSettings" },
     { "key": "ctrl+alt+s",   "command": "-workbench.action.openSettings" },
 
-    // Ctrl+Shift+C is Copy Path only in the editor and the explorer (the keymap
-    // binds it everywhere); elsewhere - e.g. the Claude Code panel - it copies
-    // the selected text, as it does in the terminal.
-    { "key": "ctrl+shift+c", "command": "editor.action.clipboardCopyAction", "when": "!editorTextFocus && !filesExplorerFocus && !terminalFocus" },
+    // Ctrl+Shift+C in a terminal without a terminal selection: a TUI such as
+    // Claude Code tracks the mouse selection itself, so the terminal has none
+    // and the keymap's Copy Path would fire. Send Ctrl+Insert (ESC [2;5~)
+    // instead, which Claude Code copies its selection on.
+    { "key": "ctrl+shift+c", "command": "workbench.action.terminal.sendSequence", "args": { "text": "\u001b[2;5~" }, "when": "terminalFocus && !terminalTextSelected" },
 
     // Shift+Enter in the terminal sends ESC CR: a newline in Claude Code / REPLs.
     { "key": "shift+enter",  "command": "workbench.action.terminal.sendSequence", "args": { "text": "\u001b\r" }, "when": "terminalFocus" },

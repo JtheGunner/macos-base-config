@@ -595,23 +595,23 @@ assert_contains "$out" "symbolic hotkeys: would disable [59, 79, 80, 81, 82]"
 [ -e "$TMP/fresh-home/Library/Preferences/com.apple.symbolichotkeys.plist" ] && fail "written in dry run"
 
 # --- ide-keymaps/intelli-key-port-personal.jsonc ----------------------------
-# personal_bindings KEY -> "command | when" per personal-layer entry on KEY
+# personal_bindings KEY -> "command | when | args" per personal-layer entry on KEY
 personal_bindings() {
   python3 - "$REPO/ide-keymaps/intelli-key-port-personal.jsonc" "$1" <<'EOF'
 import json, re, sys
 text = re.sub(r'^\s*//.*$', '', open(sys.argv[1], encoding='utf-8').read(), flags=re.M)
 for entry in json.loads(text)["entries"]:
     if entry["key"] == sys.argv[2]:
-        print(f'{entry["command"]} | {entry.get("when", "")}')
+        print(f'{entry["command"]} | {entry.get("when", "")} | {json.dumps(entry.get("args"))}')
 EOF
 }
 
 it "the personal layer is valid JSON once comments are stripped"
 personal_bindings ctrl+s >/dev/null || fail "personal layer does not parse"
 
-it "Ctrl+Shift+C copies text outside the editor, explorer and terminal"
+it "Ctrl+Shift+C in a terminal without a selection sends Ctrl+Insert (Claude Code copies)"
 assert_eq "$(personal_bindings ctrl+shift+c)" \
-  "editor.action.clipboardCopyAction | !editorTextFocus && !filesExplorerFocus && !terminalFocus"
+  'workbench.action.terminal.sendSequence | terminalFocus && !terminalTextSelected | {"text": "\u001b[2;5~"}'
 
 # --- ide-keymaps/set-terminal-option.py -------------------------------------
 TERMINAL_OPTION="$REPO/ide-keymaps/set-terminal-option.py"
