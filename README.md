@@ -416,6 +416,12 @@ installs them.
   one with `brew trust` before the bundle: Homebrew 7 skips packages from
   taps nobody trusted. A tap whose repo isn't `github.com/<user>/homebrew-<tap>`
   needs its URL in [`packages/taps.txt`](packages/taps.txt).
+- A versioned formula such as `php@8.4` is keg-only: Homebrew doesn't link its
+  commands (`php`) into the `PATH`, and `brew bundle` even unlinks one you
+  linked by hand. The catalog marks the default version `formula+link` in its
+  source column, and the generated Brewfile then carries
+  `link: :overwrite`. Mark one version per command; the other versions stay
+  keg-only.
 - A failed `brew bundle` (often a download reset on a busy network) is tried
   once more; after that, the step names what is still missing.
 - Steam is built for Intel: when it is selected and Rosetta 2 is missing, the

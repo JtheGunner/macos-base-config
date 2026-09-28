@@ -5,8 +5,10 @@
 #
 # id           unique, lowercase; what PACKAGES names
 # source       formula, cask, mas (App Store), script, npm, pipx, uv, go,
-#              applet, manual
-# ref          formula / cask name (user/tap/name adds the tap), App Store id,
+#              applet, manual. "formula+link" makes brew bundle link a
+#              keg-only formula (php@8.4 -> php on PATH): without it every
+#              bundle run unlinks it. Mark one version per command only.
+# ref         formula / cask name (user/tap/name adds the tap), App Store id,
 #              installer URL, package or module name
 # check        app name for cask / mas / applet / manual (/Applications/<check>.app),
 #              bin:<command> for a cask that installs only a command,
@@ -78,7 +80,7 @@ uv                        | formula | uv                             | -        
 python@3.12               | formula | python@3.12                    | -                   | cli-dev       | Python 3.12
 python@3.14               | formula | python@3.14                    | -                   | cli-dev       | Python 3.14
 php@8.3                   | formula | php@8.3                        | -                   | cli-dev       | PHP 8.3
-php@8.4                   | formula | php@8.4                        | -                   | cli-dev       | PHP 8.4
+php@8.4                   | formula+link | php@8.4                       | -                   | cli-dev       | PHP 8.4
 composer                  | formula | composer                       | composer            | cli-dev       | Composer, the PHP dependency manager
 qodana                    | formula | jetbrains/utils/qodana         | -                   | cli-dev       | Qodana: JetBrains code quality checks
 sass                      | formula | dart-sass                      | sass                | cli-dev       | Sass compiler (dart-sass)
