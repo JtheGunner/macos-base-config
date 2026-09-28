@@ -56,6 +56,7 @@ catalog_rows() {
       for (i = 7; i <= NF; i++) description = description "|" $i
       id = trim($1); source = trim($2); ref = trim($3); check = trim($4)
       category = trim($5); description = trim(description)
+      linked = sub(/\+link$/, "", source)
       # rows are emitted tab-separated: an inner tab would shift the columns
       if (index(id source ref check category description, "\t")) { problem("tab inside a column"); next }
       if (id == "" || source == "" || ref == "" || check == "" || category == "" || description == "") {
@@ -65,6 +66,7 @@ catalog_rows() {
       if (category !~ /^[a-z][a-z0-9-]*$/) { problem("invalid category: " category); next }
       if (category == "all") { problem("category @all is reserved"); next }
       if (index(sources, " " source " ") == 0) { problem("unknown source: " source); next }
+      if (linked && source != "formula") { problem("+link is for formulae only"); next }
       if (source == "script" && ref !~ /^https:\/\//) { problem("script needs an https:// URL"); next }
       if (check ~ /^bin:/ && source != "cask") { problem("bin:<command> is for casks only"); next }
       if (source ~ /^(script|npm|pipx|uv|go)$/ && check == "-") { problem(source " needs a command to check, not -"); next }
@@ -77,6 +79,19 @@ catalog_rows() {
     }
     END { if (bad) exit 2; printf "%s", rows }
   ' "$file"
+}
+
+# catalog_links -> the ids of the formulae marked "formula+link" in the
+# catalog, one per line. brew bundle unlinks a keg-only formula it wasn't told
+# to link, so a versioned formula that provides a command (php@8.4 -> php)
+# needs the mark to stay on PATH. Malformed catalog: return 2.
+catalog_links() {
+  catalog_rows >/dev/null || return 2
+  awk -F'|' '
+    function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+    /^[ \t]*(#|$)/ { next }
+    trim($2) ~ /\+link$/ { print trim($1) }
+  ' "$(catalog_file)"
 }
 
 # select_packages "<tokens>" -> the selected ids in catalog order,
@@ -154,9 +169,10 @@ package_state() {
 # tool (brew "pipx", "uv", "go") unless that formula is listed already.
 write_brewfiles() {
   local dir="$1" rows id source ref check _category _description tap url urls
-  local taps="" entries="" store="" needs="" tool
+  local taps="" entries="" store="" needs="" tool links option
   rows="$(catalog_rows)" || return 2
   urls="$(tap_urls)" || return 2
+  links="$(catalog_links)" || return 2
   while IFS=$'\t' read -r id source ref check _category _description; do
     case " $2 " in *" $id "*) ;; *) continue ;; esac
     case "$source" in
@@ -177,7 +193,10 @@ write_brewfiles() {
       continue
     fi
     case "$source" in
-      formula) entries="${entries}brew \"$ref\""$'\n' ;;
+      formula)
+        option=""
+        case $'\n'"$links"$'\n' in *$'\n'"$id"$'\n'*) option=", link: :overwrite" ;; esac
+        entries="${entries}brew \"$ref\"$option"$'\n' ;;
       cask) entries="${entries}cask \"$ref\""$'\n' ;;
       mas) store="${store}mas \"$check\", id: $ref"$'\n' ;;
     esac

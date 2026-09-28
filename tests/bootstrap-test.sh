@@ -257,6 +257,24 @@ assert_not_contains "$out" "$f:1:"
 assert_contains "$out" "$f:2: bin:<command> is for casks only"
 assert_contains "$out" "$f:3: pipx needs a command to check, not -"
 
+it "a +link source is read as its plain source; only a formula may carry it"
+f="$(write_catalog \
+  'php | formula+link | php@8.4 | -          | cli | keg-only, linked' \
+  'gh  | formula      | gh      | -          | cli | plain' \
+  'app | cask+link    | app     | App        | cli | cask cannot link' \
+  'x   | mas+link     | 123     | App        | cli | mas cannot link')"
+out="$(PACKAGE_CATALOG="$f" catalog_rows 2>&1)"; rc=$?
+assert_eq "$rc" 2
+assert_not_contains "$out" "$f:1:"
+assert_not_contains "$out" "$f:2:"
+assert_contains "$out" "$f:3: +link is for formulae only"
+assert_contains "$out" "$f:4: +link is for formulae only"
+f="$(write_catalog \
+  'php | formula+link | php@8.4 | -  | cli | keg-only, linked' \
+  'gh  | formula      | gh      | -  | cli | plain')"
+assert_eq "$(PACKAGE_CATALOG="$f" catalog_rows)" "$(printf 'php\tformula\tphp@8.4\t-\tcli\tkeg-only, linked\ngh\tformula\tgh\t-\tcli\tplain')"
+assert_eq "$(PACKAGE_CATALOG="$f" catalog_links)" "php"
+
 it "a missing catalog is exit 2"
 out="$(PACKAGE_CATALOG="$TMP/nope.txt" catalog_rows 2>&1)"; rc=$?
 assert_eq "$rc" 2
@@ -327,6 +345,19 @@ cask "user/tap/app"'
 assert_eq "$(cat "$d/Brewfile.mas")" 'brew "mas"
 mas "WhatsApp", id: 310633997'
 
+it "write_brewfiles: a +link formula is linked by brew bundle, so it survives the next run"
+f="$(write_catalog \
+  'php83 | formula+link | php@8.3 | - | cli | PHP 8.3, the default' \
+  'php84 | formula      | php@8.4 | - | cli | PHP 8.4' \
+  'gh    | formula      | gh      | - | cli | plain')"
+d="$(mktemp -d "$TMP/bf.XXXXXX")"
+PACKAGE_CATALOG="$f" write_brewfiles "$d" "php83 php84 gh" >/dev/null
+assert_eq "$(cat "$d/Brewfile")" 'brew "php@8.3", link: :overwrite
+brew "php@8.4"
+brew "gh"'
+PACKAGE_CATALOG="$f" write_brewfiles "$d" "php84" >/dev/null
+assert_eq "$(cat "$d/Brewfile")" 'brew "php@8.4"'
+
 it "write_brewfiles: a tap listed in taps.txt next to the catalog gets its URL"
 f="$(write_catalog "${TEST_CATALOG_LINES[@]}")"
 printf '%s\n' '# tap | url' 'user/tap | https://github.com/User/tap-repo' > "$TMP/taps.txt"
@@ -348,6 +379,13 @@ assert_contains "$rows" "antigravity-cli"
 assert_not_contains "$rows" "gemini-cli"
 assert_not_contains "$(printf '%s\n' "$rows" | cut -f1)" "tldr"
 assert_eq "$(tap_urls)" "arahim3/mlx-dspark	https://github.com/ARahim3/mlx-dspark"
+
+it "the shipped catalog links exactly one PHP, php@8.4, so brew bundle keeps php on PATH"
+assert_eq "$(catalog_links)" "php@8.4"
+d="$(mktemp -d "$TMP/bf.XXXXXX")"
+PACKAGE_CATALOG="$(catalog_file)" write_brewfiles "$d" "php@8.3 php@8.4" >/dev/null
+assert_eq "$(cat "$d/Brewfile")" 'brew "php@8.3"
+brew "php@8.4", link: :overwrite'
 
 it "apps already installed are left out; an empty Brewfile is not written"
 mkdir -p "$TMP/apps2/Some App.app" "$TMP/apps2/WhatsApp.app"
