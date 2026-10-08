@@ -229,7 +229,8 @@ should type. The pieces are set up to keep both working:
 
 Result: **Alt+digit** opens a tool window, **AltGr+digit** types the character.
 In the PhpStorm terminal, *Use Option as Meta key* must be off, or AltGr
-characters turn into escape sequences. `ide-keymaps/apply.sh` turns it off.
+characters turn into escape sequences. `ide-keymaps/apply.sh` turns it off, in the
+IDE config and in Settings Sync's local copy, so a sync pull cannot switch it back on.
 
 ---
 
