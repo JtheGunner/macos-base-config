@@ -8,6 +8,7 @@
 #
 # Quit the IDE first - it rewrites these files on exit. After launch, "Backup
 # and Sync" will push the keymap up to the JetBrains cloud on its own.
+# Settings Sync's local copy of terminal.xml is set too, so a pull cannot undo it.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 JB="$HOME/Library/Application Support/JetBrains"
@@ -30,11 +31,14 @@ found=0
 while IFS= read -r cfg; do
   found=1
   km="$cfg/keymaps"; act="$cfg/options/mac/keymap.xml"
+  # Settings Sync keeps its own copy and would restore the old value on the next pull
+  sync_terminal="$cfg/settingsSync/options/terminal.xml"
   echo "== ${cfg#$HOME/}"
   if $DRY; then
     echo "  would copy   $FILE -> $km/$NAME.xml"
     echo "  would set    <active_keymap name=\"$NAME\"/> in options/mac/keymap.xml"
     python3 "$HERE/set-terminal-option.py" "$cfg/options/terminal.xml" useOptionAsMetaKey false --dry-run
+    [ -f "$sync_terminal" ] && python3 "$HERE/set-terminal-option.py" "$sync_terminal" useOptionAsMetaKey false --dry-run
     continue
   fi
   mkdir -p "$km" "$(dirname "$act")"
@@ -51,6 +55,7 @@ while IFS= read -r cfg; do
 XML
   echo "  active keymap -> $NAME"
   python3 "$HERE/set-terminal-option.py" "$cfg/options/terminal.xml" useOptionAsMetaKey false
+  [ -f "$sync_terminal" ] && python3 "$HERE/set-terminal-option.py" "$sync_terminal" useOptionAsMetaKey false
 done < <(find "$JB" -maxdepth 1 -type d \( -name 'PhpStorm*' -o -name 'IntelliJIdea*' \) | sort)
 
 [ "$found" = 1 ] || { echo "no JetBrains config dirs under $JB"; exit 1; }

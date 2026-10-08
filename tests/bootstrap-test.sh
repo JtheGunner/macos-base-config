@@ -688,6 +688,18 @@ assert_contains "$out" "already"
 assert_eq "$(cat "$f")" "$before"
 assert_eq "$(ls "$TMP/opt2" | grep -c 'terminal.xml.bak-')" 1
 
+it "apply.sh turns Option-as-Meta off in the IDE config and in its Settings Sync copy"
+cfg="$TMP/jb-home/Library/Application Support/JetBrains/PhpStorm2026.2"
+mkdir -p "$cfg/options" "$cfg/settingsSync/options" "$TMP/jb-bin"
+for f in "$cfg/options/terminal.xml" "$cfg/settingsSync/options/terminal.xml"; do
+  printf '<application>\n  <component name="TerminalOptionsProvider">\n    <option name="useOptionAsMetaKey" value="true" />\n  </component>\n</application>\n' > "$f"
+done
+printf '#!/bin/sh\nexit 1\n' > "$TMP/jb-bin/pgrep"; chmod +x "$TMP/jb-bin/pgrep"  # no IDE running
+out="$(HOME="$TMP/jb-home" PATH="$TMP/jb-bin:$PATH" bash "$REPO/ide-keymaps/apply.sh" 2>&1)"; rc=$?
+assert_eq "$rc" 0
+assert_contains "$(cat "$cfg/options/terminal.xml")" 'useOptionAsMetaKey" value="false"'
+assert_contains "$(cat "$cfg/settingsSync/options/terminal.xml")" 'useOptionAsMetaKey" value="false"'
+
 it "set-terminal-option dry run changes nothing"
 mkdir -p "$TMP/opt3"
 f="$TMP/opt3/terminal.xml"
