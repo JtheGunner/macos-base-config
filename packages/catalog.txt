@@ -22,6 +22,7 @@ karabiner-elements        | cask    | karabiner-elements             | Karabiner
 alt-tab                   | cask    | alt-tab                        | AltTab              | base          | Windows-style Alt+Tab window switching
 sidebar                   | cask    | otuerk/sidebar/sidebar         | Sidebar             | base          | Windows-style taskbar, Dock replacement
 font-jetbrains-mono       | cask    | font-jetbrains-mono            | -                   | base          | JetBrains Mono, the editor font (editor step)
+portwhy                   | cask    | JtheGunner/tap/portwhy         | bin:portwhy         | base          | portwhy: explains who holds a port and stops it
 
 firefox                   | cask    | firefox                        | Firefox             | browser       | Firefox web browser
 google-chrome             | cask    | google-chrome                  | Google Chrome       | browser       | Google Chrome web browser
