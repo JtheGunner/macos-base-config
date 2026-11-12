@@ -364,7 +364,7 @@ Where a package comes from decides which step installs it:
 
 | `PACKAGES`                    | Installs                                        |
 |-------------------------------|-------------------------------------------------|
-| *(key not set)*               | `@base`: Karabiner-Elements, AltTab, Sidebar, JetBrains Mono |
+| *(key not set)*               | `@base`: Karabiner-Elements, AltTab, Sidebar, JetBrains Mono, portwhy |
 | `""`                          | nothing                                         |
 | `"alt-tab font-jetbrains-mono"` | just these packages                           |
 | `"@all -sidebar"`             | everything except one package (`-@category` removes a whole category) |
@@ -377,13 +377,14 @@ The `@base` packages:
 | 🔀 | [AltTab](https://alt-tab.app/)                          | Windows-style `Alt+Tab` window switching |
 | 📌 | [Sidebar](https://sidebarapp.net/)                      | Windows-style taskbar, Dock replacement |
 | 🔤 | JetBrains Mono                                          | editor font, see [Fonts](#-fonts)    |
+| 🔌 | [portwhy](https://github.com/JtheGunner/portwhy)        | explains who holds a port and stops it (`portwhy 3000`) |
 
 The whole catalog at a glance. Homebrew wherever it has the package; the
 source column in `packages/catalog.txt` says where each one comes from.
 
 |    | Category        | Packages |
 |:--:|-----------------|----------|
-| 🧱 | `base`          | karabiner-elements, alt-tab, sidebar, font-jetbrains-mono |
+| 🧱 | `base`          | karabiner-elements, alt-tab, sidebar, font-jetbrains-mono, portwhy |
 | 🌐 | `browser`       | firefox, google-chrome |
 | 💻 | `dev`           | visual-studio-code, antigravity, antigravity-ide, jetbrains-toolbox, tabby, docker-desktop, dbeaver-community, postman, wireshark-app, filezilla *(download link)* |
 | 🤖 | `ai`            | claude, claude-code, lm-studio, mlx-dspark |

@@ -191,7 +191,15 @@ TEST_CATALOG_LINES=(
 it "the shipped catalog parses and @base is today's Brewfile"
 catalog_rows >/dev/null; rc=$?
 assert_eq "$rc" 0
-assert_eq "$(select_packages "@base")" "karabiner-elements alt-tab sidebar font-jetbrains-mono"
+assert_eq "$(select_packages "@base")" "karabiner-elements alt-tab sidebar font-jetbrains-mono portwhy"
+
+it "the shipped catalog installs portwhy by default, as a command-only cask from the JtheGunner tap"
+assert_contains " $(select_packages "@base") " " portwhy "
+d="$(mktemp -d "$TMP/bf.XXXXXX")"
+PATH=/usr/bin:/bin PACKAGE_CATALOG="$(catalog_file)" write_brewfiles "$d" "portwhy" >/dev/null
+assert_eq "$(cat "$d/Brewfile")" 'tap "JtheGunner/tap"
+cask "JtheGunner/tap/portwhy"'
+assert_eq "$(catalog_rows | awk -F'\t' '$1 == "portwhy" { print $4 }')" "bin:portwhy"
 
 it "the shipped catalog covers every group and leaves the dotfiles' tools out"
 all=" $(select_packages @all) "
@@ -521,10 +529,10 @@ it "PACKAGES defaults to @base, with no config file or without the key"
 XDG_CONFIG_HOME="$TMP/none" load_config ""; rc=$?
 assert_eq "$rc" 0
 assert_eq "$PACKAGES" "@base"
-assert_eq "$SELECTED_PACKAGES" "karabiner-elements alt-tab sidebar font-jetbrains-mono"
+assert_eq "$SELECTED_PACKAGES" "karabiner-elements alt-tab sidebar font-jetbrains-mono portwhy"
 f="$(write_config 'BOOTSTRAP_STEPS="brew"')"
 load_config "$f"
-assert_eq "$SELECTED_PACKAGES" "karabiner-elements alt-tab sidebar font-jetbrains-mono"
+assert_eq "$SELECTED_PACKAGES" "karabiner-elements alt-tab sidebar font-jetbrains-mono portwhy"
 
 it "PACKAGES=\"\" selects nothing; tokens resolve in catalog order"
 f="$(write_config 'PACKAGES=""')"
@@ -537,7 +545,7 @@ load_config "$f"
 assert_eq "$SELECTED_PACKAGES" "alt-tab font-jetbrains-mono"
 f="$(write_config 'PACKAGES="@base -sidebar"')"
 load_config "$f"
-assert_eq "$SELECTED_PACKAGES" "karabiner-elements alt-tab font-jetbrains-mono"
+assert_eq "$SELECTED_PACKAGES" "karabiner-elements alt-tab font-jetbrains-mono portwhy"
 
 it "a later load resets PACKAGES, also one from the environment"
 f="$(write_config 'PACKAGES=""')"
@@ -546,7 +554,7 @@ load_config "$f"
 PACKAGES="alt-tab"
 XDG_CONFIG_HOME="$TMP/none" load_config ""
 assert_eq "$PACKAGES" "@base"
-assert_eq "$SELECTED_PACKAGES" "karabiner-elements alt-tab sidebar font-jetbrains-mono"
+assert_eq "$SELECTED_PACKAGES" "karabiner-elements alt-tab sidebar font-jetbrains-mono portwhy"
 
 it "SETTINGS_DIR defaults to the config file's directory"
 XDG_CONFIG_HOME="$TMP/none" load_config ""
@@ -2133,10 +2141,12 @@ EOF
 brew_log() { sed "s|$SB/tmp/macos-base-config\.[A-Za-z0-9]*|<tmp>|g" "$LOG" | grep -v '^brew bundle check'; }
 
 BASE_BREWFILE='  | tap "otuerk/sidebar"
+  | tap "JtheGunner/tap"
   | cask "karabiner-elements"
   | cask "alt-tab"
   | cask "otuerk/sidebar/sidebar"
-  | cask "font-jetbrains-mono"'
+  | cask "font-jetbrains-mono"
+  | cask "JtheGunner/tap/portwhy"'
 
 it "brew bundles the generated Brewfile: @base without a config"
 make_sandbox
@@ -2144,7 +2154,8 @@ brew_stub
 run_bootstrap --no-pull brew
 assert_eq "$RC" 0
 assert_eq "$(brew_log)" "brew tap otuerk/sidebar
-brew trust --cask otuerk/sidebar/sidebar
+brew tap JtheGunner/tap
+brew trust --cask otuerk/sidebar/sidebar JtheGunner/tap/portwhy
 brew bundle --file=<tmp>/Brewfile --no-upgrade
 $BASE_BREWFILE"
 assert_contains "$OUT" '    cask "alt-tab"'
@@ -2246,7 +2257,8 @@ run_bootstrap --no-pull brew
 assert_eq "$RC" 0
 assert_eq "$(brew_log)" "curl -fsSL $INSTALLER_URL
 brew tap otuerk/sidebar
-brew trust --cask otuerk/sidebar/sidebar
+brew tap JtheGunner/tap
+brew trust --cask otuerk/sidebar/sidebar JtheGunner/tap/portwhy
 brew bundle --file=<tmp>/Brewfile --no-upgrade"
 
 it "brew uses a Homebrew that is installed but not on PATH"
